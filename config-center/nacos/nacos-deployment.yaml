@@ -1,0 +1,177 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nacos-config
+  namespace: nacos-system
+data:
+  # Nacos配置文件
+  application.properties: |
+    # 数据源配置
+    spring.datasource.platform=mysql
+    db.num=1
+    db.url.0=jdbc:mysql://${MYSQL_SERVICE_HOST}:${MYSQL_SERVICE_PORT:3306}/${MYSQL_SERVICE_DB_NAME}?${MYSQL_SERVICE_DB_PARAM:characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useSSL=false&serverTimezone=UTC}
+    db.user.0=${MYSQL_SERVICE_USER}
+    db.password.0=${MYSQL_SERVICE_PASSWORD}
+    
+    # 数据库连接池配置
+    db.pool.config.connectionTimeout=30000
+    db.pool.config.validationTimeout=10000
+    db.pool.config.maximumPoolSize=20
+    db.pool.config.minimumIdle=2
+    
+    # 集群配置
+    nacos.core.auth.enabled=false
+    nacos.core.auth.system.type=nacos
+    nacos.core.auth.plugin.nacos.token.secret.key=SecretKey012345678901234567890123456789012345678901234567890123456789
+    
+    # 命名空间配置
+    nacos.naming.empty-service.auto-clean=true
+    nacos.naming.empty-service.clean.initial-delay-ms=50000
+    nacos.naming.empty-service.clean.period-time-ms=30000
+    
+    # 日志配置
+    logging.level.nacos=INFO
+    logging.level.com.alibaba.nacos=INFO
+    
+    # 网络配置
+    server.port=8848
+    server.servlet.context-path=/nacos
+    server.tomcat.accesslog.enabled=true
+    server.tomcat.accesslog.pattern=%h %l %u %t "%r" %s %b %D %{User-Agent}i %{Request-Source}i
+    
+    # 管理端点
+    management.endpoints.web.exposure.include=*
+    management.endpoint.health.show-details=always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nacos-server
+  namespace: nacos-system
+  labels:
+    app: nacos-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nacos-server
+  template:
+    metadata:
+      labels:
+        app: nacos-server
+    spec:
+      containers:
+      - name: nacos-server
+        image: nacos/nacos-server:v2.5.1-slim
+        ports:
+        - containerPort: 8848
+          name: server
+        - containerPort: 9848
+          name: client-rpc
+        - containerPort: 9849
+          name: client-grpc
+        - containerPort: 7848
+          name: server-grpc
+        - containerPort: 9555
+          name: client-http
+        env:
+        - name: MODE
+          value: "standalone"
+        - name: PREFER_HOST_MODE
+          value: "hostname"
+        - name: SPRING_DATASOURCE_PLATFORM
+          value: "mysql"
+        - name: MYSQL_SERVICE_HOST
+          value: "mysql-service"
+        - name: MYSQL_SERVICE_PORT
+          value: "3306"
+        - name: MYSQL_SERVICE_DB_NAME
+          value: "nacos"
+        - name: MYSQL_SERVICE_USER
+          value: "nacos"
+        - name: MYSQL_SERVICE_PASSWORD
+          value: "nacos123"
+        - name: MYSQL_SERVICE_DB_PARAM
+          value: "characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useSSL=false&serverTimezone=UTC"
+        - name: NACOS_AUTH_ENABLE
+          value: "false"
+        - name: NACOS_AUTH_TOKEN
+          value: "SecretKey012345678901234567890123456789012345678901234567890123456789"
+        - name: NACOS_AUTH_IDENTITY_KEY
+          value: "serverIdentity"
+        - name: NACOS_AUTH_IDENTITY_VALUE
+          value: "security"
+        - name: NACOS_SECURITY_IGNORE_URLS
+          value: "/,/error,/**/*.css,/**/*.js,/**/*.html,/**/*.map,/**/*.svg,/**/*.png,/**/*.ico,/console-fe/public/**,/v1/auth/**,/v1/console/health/**,/actuator/**,/v1/console/server/**"
+        volumeMounts:
+        - name: nacos-config
+          mountPath: /home/nacos/conf/application.properties
+          subPath: application.properties
+        - name: nacos-logs
+          mountPath: /home/nacos/logs
+        - name: nacos-data
+          mountPath: /home/nacos/data
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /nacos/actuator/health
+            port: 8848
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /nacos/actuator/health
+            port: 8848
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: nacos-config
+        configMap:
+          name: nacos-config
+      - name: nacos-logs
+        emptyDir: {}
+      - name: nacos-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nacos-service
+  namespace: nacos-system
+  labels:
+    app: nacos-server
+spec:
+  type: NodePort
+  ports:
+  - port: 8848
+    targetPort: 8848
+    nodePort: 30848
+    name: http
+  - port: 9848
+    targetPort: 9848
+    nodePort: 30948
+    name: client-rpc
+  - port: 9849
+    targetPort: 9849
+    nodePort: 30949
+    name: client-grpc
+  - port: 7848
+    targetPort: 7848
+    nodePort: 30748
+    name: server-grpc
+  - port: 9555
+    targetPort: 9555
+    nodePort: 30955
+    name: client-http
+  selector:
+    app: nacos-server 
