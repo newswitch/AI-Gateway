@@ -41,18 +41,23 @@ class DownloadModelRequest(BaseModel):
 class TokenResponse(BaseModel):
     success: bool
     model_name: Optional[str] = None
+    model_type: Optional[str] = None
     text: Optional[str] = None
     token_count: int
     sample_tokens: Optional[List[int]] = None
     sample_text: Optional[str] = None
     text_length: Optional[int] = None
+    tokenizer_type: Optional[str] = None
     error: Optional[str] = None
 
 class ModelInfo(BaseModel):
     name: str
     description: str
     downloaded: bool
+    available: bool
     url: str
+    type: str
+    tokenizer_type: str
 
 @app.get("/")
 async def root():
@@ -141,6 +146,7 @@ async def download_model(request: DownloadModelRequest):
         raise HTTPException(status_code=500, detail=f"下载失败: {str(e)}")
 
 @app.get("/health")
+@app.head("/health")
 async def health_check():
     """健康检查接口"""
     return {

@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-gateway-frontend
+  namespace: ai-gateway
+  labels:
+    app: ai-gateway-frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ai-gateway-frontend
+  template:
+    metadata:
+      labels:
+        app: ai-gateway-frontend
+    spec:
+      containers:
+      - name: frontend
+        image: ai-gateway-frontend:latest
+        imagePullPolicy: Never  # 使用本地构建的镜像
+        ports:
+        - containerPort: 80
+        env:
+        - name: REACT_APP_API_BASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: ai-gateway-config
+              key: REACT_APP_API_BASE_URL
+        - name: REACT_APP_MONITORING_ENABLED
+          valueFrom:
+            configMapKeyRef:
+              name: ai-gateway-config
+              key: REACT_APP_MONITORING_ENABLED
+        - name: REACT_APP_MONITORING_REFRESH_INTERVAL
+          valueFrom:
+            configMapKeyRef:
+              name: ai-gateway-config
+              key: REACT_APP_MONITORING_REFRESH_INTERVAL
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-gateway-frontend
+  namespace: ai-gateway
+  labels:
+    app: ai-gateway-frontend
+spec:
+  selector:
+    app: ai-gateway-frontend
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+  type: ClusterIP 

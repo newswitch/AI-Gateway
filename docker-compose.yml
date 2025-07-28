@@ -1,0 +1,169 @@
+version: '3.8'
+
+services:
+  # MySQL数据库
+  mysql:
+    image: mysql:8.0
+    container_name: ai-gateway-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ai_gateway_root
+      MYSQL_DATABASE: ai_gateway_config
+      MYSQL_USER: ai_gateway
+      MYSQL_PASSWORD: ai_gateway_pass
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - ai-gateway-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  # Redis缓存
+  redis:
+    image: redis:7-alpine
+    container_name: ai-gateway-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - ai-gateway-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      timeout: 20s
+      retries: 10
+
+  # Token计算服务
+  token-service:
+    build: ./services/token-count
+    container_name: ai-gateway-token-service
+    restart: unless-stopped
+    ports:
+      - "8002:8000"
+    environment:
+      # 服务配置
+      HOST: 0.0.0.0
+      PORT: 8000
+      DEBUG: false
+      LOG_LEVEL: INFO
+      # 模型配置
+      MODELS_DIR: /app/models
+      HF_CACHE_DIR: /app/.cache/huggingface
+    volumes:
+      - token_models:/app/models
+      - token_cache:/app/.cache
+    networks:
+      - ai-gateway-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8000/health"]
+      timeout: 30s
+      retries: 5
+      start_period: 60s
+
+  # 配置中心服务
+  config-center:
+    build: ./config-center
+    container_name: ai-gateway-config-center
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    environment:
+      # 数据库配置
+      DATABASE_URL: ${DATABASE_URL:-mysql+aiomysql://ai_gateway:ai_gateway_pass@mysql:3306/ai_gateway_config}
+      # Redis配置
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      # 服务配置
+      DEBUG: ${DEBUG:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # 监控配置
+      MONITORING_ENABLED: ${MONITORING_ENABLED:-true}
+      MONITORING_REFRESH_INTERVAL: ${MONITORING_REFRESH_INTERVAL:-30}
+      CACHE_TTL_NAMESPACE: ${CACHE_TTL_NAMESPACE:-3600}
+      CACHE_TTL_MATCHERS: ${CACHE_TTL_MATCHERS:-1800}
+      CACHE_TTL_RULES: ${CACHE_TTL_RULES:-1800}
+      CACHE_TTL_UPSTREAM: ${CACHE_TTL_UPSTREAM:-3600}
+      # Token服务配置
+      TOKEN_SERVICE_URL: ${TOKEN_SERVICE_URL:-http://token-service:8000}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      token-service:
+        condition: service_healthy
+    networks:
+      - ai-gateway-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      timeout: 30s
+      retries: 5
+      start_period: 40s
+
+  # 前端服务
+  frontend:
+    build: ./frontend
+    container_name: ai-gateway-frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    environment:
+      # 前端配置
+      REACT_APP_API_BASE_URL: ${REACT_APP_API_BASE_URL:-http://localhost:8001}
+      REACT_APP_MONITORING_ENABLED: ${REACT_APP_MONITORING_ENABLED:-true}
+      REACT_APP_MONITORING_REFRESH_INTERVAL: ${REACT_APP_MONITORING_REFRESH_INTERVAL:-30000}
+    depends_on:
+      config-center:
+        condition: service_healthy
+    networks:
+      - ai-gateway-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health"]
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Gateway服务（可选，用于完整测试）
+  gateway:
+    build: ./gateway
+    container_name: ai-gateway-nginx
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    environment:
+      # Gateway配置
+      CONFIG_CENTER_URL: ${CONFIG_CENTER_URL:-http://config-center:8000}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      TOKEN_SERVICE_URL: ${TOKEN_SERVICE_URL:-http://token-service:8000}
+      USE_PRECISE_TOKEN_CALCULATION: ${USE_PRECISE_TOKEN_CALCULATION:-true}
+      TOKEN_CALCULATION_TIMEOUT: ${TOKEN_CALCULATION_TIMEOUT:-3000}
+      TOKEN_CACHE_TTL: ${TOKEN_CACHE_TTL:-300}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      config-center:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      token-service:
+        condition: service_healthy
+    networks:
+      - ai-gateway-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      timeout: 30s
+      retries: 5
+      start_period: 40s
+
+volumes:
+  mysql_data:
+  redis_data:
+  token_models:
+  token_cache:
+
+networks:
+  ai-gateway-network:
+    driver: bridge 

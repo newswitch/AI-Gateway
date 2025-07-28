@@ -6,6 +6,7 @@ WORKDIR /app
 
 # 安装运行时依赖
 RUN apt-get update && apt-get install -y \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
 # 复制依赖文件

@@ -1,0 +1,93 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ai-gateway-ingress
+  namespace: ai-gateway
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "30"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "30"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "30"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: ai-gateway.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: ai-gateway-frontend
+            port:
+              number: 80
+  - host: api.ai-gateway.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: ai-gateway-config-center
+            port:
+              number: 8000
+  - host: gateway.ai-gateway.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: ai-gateway-nginx
+            port:
+              number: 80
+---
+# 如果使用HTTPS，可以添加TLS配置
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: ai-gateway-ingress-tls
+#   namespace: ai-gateway
+#   annotations:
+#     nginx.ingress.kubernetes.io/ssl-redirect: "true"
+#     cert-manager.io/cluster-issuer: "letsencrypt-prod"
+# spec:
+#   tls:
+#   - hosts:
+#     - ai-gateway.local
+#     - api.ai-gateway.local
+#     - gateway.ai-gateway.local
+#     secretName: ai-gateway-tls
+#   rules:
+#   - host: ai-gateway.local
+#     http:
+#       paths:
+#       - path: /
+#         pathType: Prefix
+#         backend:
+#           service:
+#             name: ai-gateway-frontend
+#             port:
+#               number: 80
+#   - host: api.ai-gateway.local
+#     http:
+#       paths:
+#       - path: /
+#         pathType: Prefix
+#         backend:
+#           service:
+#             name: ai-gateway-config-center
+#             port:
+#               number: 8000
+#   - host: gateway.ai-gateway.local
+#     http:
+#       paths:
+#       - path: /
+#         pathType: Prefix
+#         backend:
+#           service:
+#             name: ai-gateway-nginx
+#             port:
+#               number: 80 

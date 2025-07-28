@@ -57,8 +57,34 @@ class TokenService:
         Returns:
             bool: 是否为Qwen系列模型
         """
+        # 更精确的Qwen模型识别
         qwen_keywords = ['qwen', 'qwq', 'Qwen', 'QWQ']
-        return any(keyword.lower() in model_name.lower() for keyword in qwen_keywords)
+        model_lower = model_name.lower()
+        
+        # 检查是否包含Qwen关键词
+        is_qwen = any(keyword.lower() in model_lower for keyword in qwen_keywords)
+        
+        # 特殊处理：DeepSeek R1系列虽然基于Qwen，但使用标准分词器
+        if 'deepseek' in model_lower and 'r1' in model_lower:
+            is_qwen = False
+            
+        logger.info(f"模型 {model_name} 识别为 {'Qwen系列' if is_qwen else '标准模型'}")
+        return is_qwen
+    
+    def _get_model_type(self, model_name: str) -> str:
+        """
+        获取模型类型
+        
+        Args:
+            model_name: 模型名称
+            
+        Returns:
+            str: 模型类型 ('Qwen' 或 'Standard')
+        """
+        if self._is_qwen_model(model_name):
+            return "Qwen"
+        else:
+            return "Standard"
     
     def _check_qwen_files(self, model_path: Path) -> bool:
         """
@@ -71,18 +97,39 @@ class TokenService:
             bool: 文件是否完整
         """
         # Qwen分词器需要的文件
-        vocab_file = model_path / "vocab.txt"
-        config_file = model_path / "tokenizer_config.json"
+        required_files = [
+            "vocab.json",
+            "tokenizer_config.json"
+        ]
         
-        if not vocab_file.exists():
-            logger.error(f"Qwen模型缺少vocab.txt: {vocab_file}")
+        # 可选文件（某些Qwen模型可能有）
+        optional_files = [
+            "tokenizer.json",
+            "special_tokens_map.json"
+        ]
+        
+        missing_files = []
+        for file_name in required_files:
+            file_path = model_path / file_name
+            if not file_path.exists():
+                missing_files.append(file_name)
+                logger.error(f"Qwen模型缺少必需文件: {file_path}")
+        
+        if missing_files:
+            logger.error(f"Qwen模型文件不完整，缺少: {missing_files}")
             return False
         
-        if not config_file.exists():
-            logger.error(f"Qwen模型缺少tokenizer_config.json: {config_file}")
-            return False
+        # 检查可选文件
+        optional_missing = []
+        for file_name in optional_files:
+            file_path = model_path / file_name
+            if not file_path.exists():
+                optional_missing.append(file_name)
         
-        logger.info(f"Qwen模型文件检查通过: vocab.txt={vocab_file.exists()}, tokenizer_config.json={config_file.exists()}")
+        if optional_missing:
+            logger.info(f"Qwen模型缺少可选文件: {optional_missing}")
+        
+        logger.info(f"Qwen模型文件检查通过: {model_path}")
         return True
     
     def _check_standard_files(self, model_path: Path) -> bool:
@@ -96,18 +143,39 @@ class TokenService:
             bool: 文件是否完整
         """
         # 标准分词器需要的文件
-        tokenizer_json = model_path / "tokenizer.json"
-        tokenizer_config = model_path / "tokenizer_config.json"
+        required_files = [
+            "tokenizer.json",
+            "tokenizer_config.json"
+        ]
         
-        if not tokenizer_json.exists():
-            logger.error(f"标准模型缺少tokenizer.json: {tokenizer_json}")
+        # 可选文件
+        optional_files = [
+            "vocab.txt",
+            "special_tokens_map.json"
+        ]
+        
+        missing_files = []
+        for file_name in required_files:
+            file_path = model_path / file_name
+            if not file_path.exists():
+                missing_files.append(file_name)
+                logger.error(f"标准模型缺少必需文件: {file_path}")
+        
+        if missing_files:
+            logger.error(f"标准模型文件不完整，缺少: {missing_files}")
             return False
         
-        if not tokenizer_config.exists():
-            logger.error(f"标准模型缺少tokenizer_config.json: {tokenizer_config}")
-            return False
+        # 检查可选文件
+        optional_missing = []
+        for file_name in optional_files:
+            file_path = model_path / file_name
+            if not file_path.exists():
+                optional_missing.append(file_name)
         
-        logger.info(f"标准模型文件检查通过: tokenizer.json={tokenizer_json.exists()}, tokenizer_config.json={tokenizer_config.exists()}")
+        if optional_missing:
+            logger.info(f"标准模型缺少可选文件: {optional_missing}")
+        
+        logger.info(f"标准模型文件检查通过: {model_path}")
         return True
     
     def download_model(self, model_name: str) -> bool:
@@ -186,16 +254,17 @@ class TokenService:
                 return None
             
             if QWEN_TOKENIZER_AVAILABLE:
-                logger.info(f"使用QwenTokenizer加载: {model_name}")
+                logger.info(f"使用专用QwenTokenizer加载: {model_name}")
                 
                 # 显式使用QwenTokenizer，开启trust_remote_code
                 tokenizer = QwenTokenizer.from_pretrained(
                     str(model_path),
                     local_files_only=True,
-                    trust_remote_code=True  # 必须为True，Qwen需要远程代码支持
+                    trust_remote_code=True,  # 必须为True，Qwen需要远程代码支持
+                    use_fast=False  # QwenTokenizer通常使用慢速分词器
                 )
             else:
-                logger.info(f"QwenTokenizer不可用，使用AutoTokenizer加载: {model_name}")
+                logger.warning(f"QwenTokenizer不可用，使用AutoTokenizer作为回退方案: {model_name}")
                 
                 # 回退到AutoTokenizer，但开启trust_remote_code
                 tokenizer = AutoTokenizer.from_pretrained(
@@ -215,7 +284,7 @@ class TokenService:
             
             # 只在成功加载后才缓存
             self.tokenizers[model_name] = tokenizer
-            logger.info(f"成功加载Qwen分词器: {model_name}")
+            logger.info(f"成功加载Qwen分词器: {model_name} (类型: {type(tokenizer).__name__})")
             return tokenizer
             
         except FileNotFoundError as e:
@@ -244,14 +313,14 @@ class TokenService:
             if not self._check_standard_files(model_path):
                 return None
             
-            logger.info(f"使用AutoTokenizer加载: {model_name}")
+            logger.info(f"使用AutoTokenizer加载标准模型: {model_name}")
             
             # 使用AutoTokenizer
             tokenizer = AutoTokenizer.from_pretrained(
                 str(model_path),
                 local_files_only=True,
-                trust_remote_code=False,
-                use_fast=False
+                trust_remote_code=False,  # 标准模型通常不需要远程代码
+                use_fast=True  # 标准模型通常使用快速分词器
             )
             
             # 验证分词器是否正常工作
@@ -261,7 +330,7 @@ class TokenService:
             
             # 只在成功加载后才缓存
             self.tokenizers[model_name] = tokenizer
-            logger.info(f"成功加载标准分词器: {model_name}")
+            logger.info(f"成功加载标准分词器: {model_name} (类型: {type(tokenizer).__name__})")
             return tokenizer
             
         except FileNotFoundError as e:
@@ -286,13 +355,15 @@ class TokenService:
             required_special_tokens = [
                 "<tool_call>", "</tool_call>", 
                 "<tool_response>", "</tool_response>",
-                "<|im_start|>", "<|im_end|>"
+                "<|im_start|>", "<|im_end|>",
+                "<|system|>", "<|user|>", "<|assistant|>"
             ]
             
             # 检查哪些token缺失
             missing_tokens = []
             for token in required_special_tokens:
-                if token not in tokenizer.additional_special_tokens:
+                # 检查token是否在词汇表中
+                if token not in tokenizer.get_vocab():
                     missing_tokens.append(token)
             
             if missing_tokens:
@@ -352,11 +423,13 @@ class TokenService:
             return {
                 "success": True,
                 "model_name": model_name,
+                "model_type": self._get_model_type(model_name),
                 "text": text,
                 "token_count": token_count,
                 "sample_tokens": sample_tokens,
                 "sample_text": sample_text,
                 "text_length": len(text),
+                "tokenizer_type": type(tokenizer).__name__,
                 "error": None
             }
         except ValueError as ve:
@@ -394,7 +467,8 @@ class TokenService:
                 "downloaded": is_available,
                 "available": is_available,
                 "url": config["url"],
-                "type": "Qwen" if self._is_qwen_model(name) else "Standard"
+                "type": self._get_model_type(name),
+                "tokenizer_type": "QwenTokenizer" if self._is_qwen_model(name) and QWEN_TOKENIZER_AVAILABLE else "AutoTokenizer"
             })
         return models
     
@@ -441,11 +515,13 @@ class TokenService:
                 results.append({
                     "success": True,
                     "model_name": model_name,
+                    "model_type": self._get_model_type(model_name),
                     "text": text,
                     "token_count": token_count,
                     "sample_tokens": sample_tokens,
                     "sample_text": sample_text,
                     "text_length": len(text),
+                    "tokenizer_type": type(tokenizer).__name__,
                     "error": None
                 })
             

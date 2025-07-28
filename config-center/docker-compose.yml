@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  # MySQL数据库
+  mysql:
+    image: mysql:8.0
+    container_name: ai-gateway-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ai_gateway_root
+      MYSQL_DATABASE: ai_gateway_config
+      MYSQL_USER: ai_gateway
+      MYSQL_PASSWORD: ai_gateway_pass
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - ai-gateway-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  # Redis缓存
+  redis:
+    image: redis:7-alpine
+    container_name: ai-gateway-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - ai-gateway-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      timeout: 20s
+      retries: 10
+
+  # 配置中心服务
+  config-center:
+    build: .
+    container_name: ai-gateway-config-center
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    environment:
+      # 数据库配置
+      DATABASE_URL: mysql+aiomysql://ai_gateway:ai_gateway_pass@mysql:3306/ai_gateway_config
+      # Redis配置
+      REDIS_URL: redis://redis:6379/0
+      # 服务配置
+      DEBUG: false
+      LOG_LEVEL: INFO
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - ai-gateway-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      timeout: 30s
+      retries: 5
+      start_period: 40s
+
+volumes:
+  mysql_data:
+  redis_data:
+
+networks:
+  ai-gateway-network:
+    driver: bridge 
