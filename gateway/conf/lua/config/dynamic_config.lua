@@ -1,6 +1,7 @@
 local cjson = require "cjson"
 local redis = require "resty.redis"
 local mysql = require "resty.mysql"
+local svc = require "utils.service_config"
 
 local _M = {}
 
@@ -20,7 +21,8 @@ local function get_redis_conn()
     local red = redis:new()
     red:set_timeout(1000)
     
-    local ok, err = red:connect("redis", 6379)
+    local rc = svc.get_redis_config()
+    local ok, err = red:connect(rc.host, rc.port or 6379)
     if not ok then
         ngx.log(ngx.ERR, "Failed to connect to Redis: ", err)
         return nil
@@ -38,13 +40,14 @@ local function get_mysql_conn()
     end
     
     db:set_timeout(1000)
-    
+
+    local mc = svc.get_mysql_config()
     local ok, err = db:connect({
-        host = "mysql",
-        port = 3306,
-        database = "ai_gateway_config",
-        user = "ai_gateway",
-        password = "ai_gateway_pass"
+        host = mc.host,
+        port = mc.port or 3306,
+        database = mc.database,
+        user = mc.user,
+        password = mc.password
     })
     
     if not ok then

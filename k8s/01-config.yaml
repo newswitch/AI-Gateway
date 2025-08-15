@@ -5,7 +5,7 @@ metadata:
   namespace: ai-gateway
 data:
   # 数据库配置
-  DATABASE_URL: "mysql+aiomysql://ai_gateway:ai_gateway_pass@ai-gateway-mysql:3306/ai_gateway_config"
+  DATABASE_URL: "mysql+aiomysql://ai_gateway:ai_gateway_pass@ai-gateway-mysql.ai-gateway.svc.cluster.local:3306/ai_gateway_config"
   
   # Redis配置
   REDIS_URL: "redis://ai-gateway-redis:6379/0"
@@ -36,7 +36,7 @@ data:
   CONFIG_CENTER_URL: "http://ai-gateway-config-center:8000"
   
   # 前端配置
-  REACT_APP_API_BASE_URL: "http://ai-gateway-config-center:8001"
+  REACT_APP_API_BASE_URL: "http://api.ai-gateway.local"
   REACT_APP_MONITORING_ENABLED: "true"
   REACT_APP_MONITORING_REFRESH_INTERVAL: "30000"
 ---

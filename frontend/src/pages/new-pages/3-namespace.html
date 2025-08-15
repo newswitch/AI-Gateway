@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>命名空间管理 | 大模型网关配置中心</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+  
+  <!-- Tailwind 配置 -->
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#165DFF',
+            secondary: '#0FC6C2',
+            success: '#00B42A',
+            warning: '#FF7D00',
+            danger: '#F53F3F',
+            dark: '#1D2129',
+            'dark-2': '#4E5969',
+            'light-1': '#F2F3F5',
+            'light-2': '#E5E6EB',
+            'light-3': '#C9CDD4',
+          },
+          fontFamily: {
+            inter: ['Inter', 'system-ui', 'sans-serif'],
+          },
+        },
+      }
+    }
+  </script>
+  
+  <!-- 自定义工具类 -->
+  <style type="text/tailwindcss">
+    @layer utilities {
+      .content-auto {
+        content-visibility: auto;
+      }
+      .scrollbar-hide {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+      .scrollbar-hide::-webkit-scrollbar {
+        display: none;
+      }
+      .card-shadow {
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+      }
+      .card-hover {
+        transition: all 0.3s ease;
+      }
+      .card-hover:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+      }
+      .token-badge {
+        @apply px-2 py-1 rounded-full text-xs font-medium;
+      }
+      .policy-badge {
+        @apply px-2 py-0.5 rounded-full text-xs font-medium;
+      }
+    }
+  </style>
+</head>
+<body class="bg-gray-50 font-inter text-dark min-h-screen flex flex-col">
+  <!-- 顶部导航栏 -->
+  <header class="bg-white border-b border-light-2 sticky top-0 z-50 transition-all duration-300" id="navbar">
+    <div class="container mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex justify-between items-center h-16">
+        <!-- Logo 和标题 -->
+        <div class="flex items-center space-x-2">
+          <div class="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
+            <i class="fa fa-server text-white text-xl"></i>
+          </div>
+          <div>
+            <h1 class="text-lg font-bold text-dark">大模型网关配置中心</h1>
+            <p class="text-xs text-light-3">LLM Gateway Configuration</p>
+          </div>
+        </div>
+        
+        <!-- 搜索栏 -->
+        <div class="hidden md:block flex-grow max-w-md mx-8">
+          <div class="relative">
+            <span class="absolute inset-y-0 left-0 flex items-center pl-3">
+              <i class="fa fa-search text-light-3"></i>
+            </span>
+            <input type="text" placeholder="搜索命名空间或负责人..." class="w-full pl-10 pr-4 py-2 rounded-lg border border-light-2 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all">
+          </div>
+        </div>
+        
+        <!-- 用户菜单 -->
+        <div class="flex items-center space-x-4">
+          <button class="text-light-3 hover:text-primary transition-colors">
+            <i class="fa fa-bell-o text-xl"></i>
+          </button>
+          <button class="text-light-3 hover:text-primary transition-colors">
+            <i class="fa fa-cog text-xl"></i>
+          </button>
+          <div class="flex items-center space-x-2 cursor-pointer group">
+            <img src="https://picsum.photos/id/1005/200/200" alt="用户头像" class="w-8 h-8 rounded-full object-cover border-2 border-transparent group-hover:border-primary transition-all">
+            <span class="hidden md:inline text-sm font-medium">管理员</span>
+            <i class="fa fa-angle-down text-light-3 group-hover:text-primary transition-colors"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="flex flex-1 overflow-hidden">
+    <!-- 侧边栏 -->
+    <aside class="w-64 bg-white border-r border-light-2 flex-shrink-0 hidden md:block overflow-y-auto scrollbar-hide transition-all duration-300" id="sidebar">
+      <nav class="py-4">
+        <div class="px-4 py-2 mb-4">
+          <p class="text-xs font-medium text-light-3 uppercase tracking-wider">主菜单</p>
+        </div>
+        
+        <a href="#" class="flex items-center px-4 py-3 text-primary bg-primary/5 border-r-4 border-primary">
+          <i class="fa fa-dashboard w-5 text-center mr-3"></i>
+          <span>总览</span>
+        </a>
+        
+        <a href="model-routing.html" class="flex items-center px-4 py-3 text-dark-2 hover:bg-light-1 transition-colors">
+          <i class="fa fa-exchange w-5 text-center mr-3"></i>
+          <span>模型路由</span>
+        </a>
+        
+        <a href="#" class="flex items-center px-4 py-3 text-primary bg-primary/5 border-r-4 border-primary">
+          <i class="fa fa-cubes w-5 text-center mr-3"></i>
+          <span>命名空间管理</span>
+        </a>
+        
+        <a href="policy-configuration.html" class="flex items-center px-4 py-3 text-dark-2 hover:bg-light-1 transition-colors">
+          <i class="fa fa-filter w-5 text-center mr-3"></i>
+          <span>策略配置</span>
+        </a>
+              
+        <a href="traffic-monitoring.html" class="flex items-center px-4 py-3 text-dark-2 hover:bg-light-1 transition-colors">
+          <i class="fa fa-bar-chart w-5 text-center mr-3"></i>
+          <span>流量监控</span>
+        </a>
+        
+        <a href="access-logs.html" class="flex items-center px-4 py-3 text-dark-2 hover:bg-light-1 transition-colors">
+          <i class="fa fa-history w-5 text-center mr-3"></i>
+          <span>访问日志</span>
+        </a>
+        
+      </nav>
+    </aside>
+
+    <!-- 主内容区 -->
+    <main class="flex-1 overflow-y-auto bg-gray-50 scrollbar-hide">
+      <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <!-- 页面标题 -->
+        <div class="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 class="text-[clamp(1.5rem,3vw,2rem)] font-bold text-dark">命名空间管理</h2>
+            <p class="text-light-3 mt-1">管理和配置模型服务的命名空间及相关策略</p>
+          </div>
+          <div class="mt-4 sm:mt-0 flex space-x-3">
+            <button id="addNamespaceBtn" class="bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg transition-colors flex items-center">
+              <i class="fa fa-plus mr-2"></i>
+              <span>创建命名空间</span>
+            </button>
+            <button id="importNamespacesBtn" class="bg-light-1 hover:bg-light-2 text-dark-2 px-4 py-2 rounded-lg transition-colors flex items-center">
+              <i class="fa fa-upload mr-2"></i>
+              <span>导入命名空间</span>
+            </button>
+          </div>
+        </div>
+        
+        <!-- 概览卡片 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div class="bg-white rounded-xl p-5 card-shadow card-hover">
+            <div class="flex justify-between items-start">
+              <div>
+                <p class="text-light-3 text-sm">命名空间总数</p>
+                <h3 class="text-2xl font-bold mt-1">36</h3>
+                <p class="text-success text-xs mt-2 flex items-center">
+                  <i class="fa fa-arrow-up mr-1"></i>
+                  <span>较上周增长 12%</span>
+                </p>
+              </div>
+              <div class="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+                <i class="fa fa-cubes text-xl"></i>
+              </div>
+            </div>
+          </div>
+          
+          <div class="bg-white rounded-xl p-5 card-shadow card-hover">
+            <div class="flex justify-between items-start">
+              <div>
+                <p class="text-light-3 text-sm">启用中</p>
+                <h3 class="text-2xl font-bold mt-1">29</h3>
+                <p class="text-success text-xs mt-2 flex items-center">
+                  <i class="fa fa-check mr-1"></i>
+                  <span>80.6% 启用率</span>
+                </p>
+              </div>
+              <div class="w-12 h-12 rounded-lg bg-success/10 flex items-center justify-center text-success">
+                <i class="fa fa-play-circle text-xl"></i>
+              </div>
+            </div>
+          </div>
+          
+          <div class="bg-white rounded-xl p-5 card-shadow card-hover">
+            <div class="flex justify-between items-start">
+              <div>
+                <p class="text-light-3 text-sm">限额告警</p>
+                <h3 class="text-2xl font-bold mt-1">5</h3>
+                <p class="text-warning text-xs mt-2 flex items-center">
+                  <i class="fa fa-exclamation-triangle mr-1"></i>
+                  <span>需要关注</span>
+                </p>
+              </div>
+              <div class="w-12 h-12 rounded-lg bg-warning/10 flex items-center justify-center text-warning">
+                <i class="fa fa-bell text-xl"></i>
+              </div>
+            </div>
+          </div>
+          
+          <div class="bg-white rounded-xl p-5 card-shadow card-hover">
+            <div class="flex justify-between items-start">
+              <div>
+                <p class="text-light-3 text-sm">无上游绑定</p>
+                <h3 class="text-2xl font-bold mt-1">3</h3>
+                <p class="text-danger text-xs mt-2 flex items-center">
+                  <i class="fa fa-exclamation-circle mr-1"></i>
+                  <span>需要处理</span>
+                </p>
+              </div>
+              <div class="w-12 h-12 rounded-lg bg-danger/10 flex items-center justify-center text-danger">
+                <i class="fa fa-link text-xl"></i>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 命名空间分布图表 -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          <div class="bg-white rounded-xl p-5 card-shadow">
+            <div class="flex justify-between items-center mb-6">
+              <h3 class="font-semibold text-lg">命名空间状态分布</h3>
+              <div class="flex space-x-2">
+                <button class="px-3 py-1 text-xs bg-primary/10 text-primary rounded-full">全部</button>
+                <button class="px-3 py-1 text-xs bg-light-1 text-dark-2 rounded-full hover:bg-primary/10 hover:text-primary transition-colors">本周</button>
+                <button class="px-3 py-1 text-xs bg-light-1 text-dark-2 rounded-full hover:bg-primary/10 hover:text-primary transition-colors">本月</button>
+              </div>
+            </div>
+            <div class="h-72">
+              <canvas id="namespaceStatusChart"></canvas>
+            </div>
+          </div>
+          
+          <div class="bg-white rounded-xl p-5 card-shadow">
+            <div class="flex justify-between items-center mb-6">
+              <h3 class="font-semibold text-lg">命名空间请求趋势</h3>
+              <div class="flex space-x-2">
+                <button class="px-3 py-1 text-xs bg-primary/10 text-primary rounded-full">今日</button>
+                <button class="px-3 py-1 text-xs bg-light-1 text-dark-2 rounded-full hover:bg-primary/10 hover:text-primary transition-colors">本周</button>
+                <button class="px-3 py-1 text-xs bg-light-1 text-dark-2 rounded-full hover:bg-primary/10 hover:text-primary transition-colors">本月</button>
+              </div>
+            </div>
+            <div class="h-72">
+              <canvas id="namespaceRequestChart"></canvas>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 命名空间列表 -->
+        <div class="bg-white rounded-xl card-shadow overflow-hidden">
+          <div class="p-5 border-b border-light-2 flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+            <h3 class="font-semibold text-lg">命名空间列表</h3>
+            <div class="flex flex-wrap gap-3">
+              <div class="relative">
+                <input type="text" placeholder="关键字搜索..." class="pl-9 pr-4 py-1.5 border border-light-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary">
+                <i class="fa fa-search absolute left-3 top-2.5 text-light-3 pointer-events-none"></i>
+              </div>
+              <div class="relative">
+                <select class="pl-3 pr-8 py-1.5 border border-light-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary appearance-none bg-white">
+                  <option>负责人筛选</option>
+                  <option>张三</option>
+                  <option>李四</option>
+                  <option>王五</option>
+                  <option>赵六</option>
+                </select>
+                <i class="fa fa-chevron-down absolute right-3 top-2.5 text-light-3 pointer-events-none text-xs"></i>
+              </div>
+              <div class="relative">
+                <select class="pl-3 pr-8 py-1.5 border border-light-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary appearance-none bg-white">
+                  <option>状态筛选</option>
+                  <option>启用</option>
+                  <option>禁用</option>
+                </select>
+                <i class="fa fa-chevron-down absolute right-3 top-2.5 text-light-3 pointer-events-none text-xs"></i>
+              </div>
+              <button class="text-light-3 hover:text-primary transition-colors">
+                <i class="fa fa-refresh"></i>
+              </button>
+            </div>
+          </div>
+          
+          <div class="overflow-x-auto">
+            <table class="w-full">
+              <thead>
+                <tr class="bg-gray-50">
+                  <th class="px-5 py-3 text-left text-xs font-medium text-light-3 uppercase tracking-wider">
+                    <div class="flex items-center">
+                      <input type="checkbox" class="mr-2 rounded text-primary focus:ring-primary">
+                      ID/Code
+                      <i class="fa fa-sort-alpha-asc ml-1 text-light-3"></i>
+                    </div>
+                  </th>
+                  <th class="px-5 py-3 text-left text-xs font-medium text-light-3 uppercase tracking-wider">名称</th>
+                  <th class="px-5 py-3 text-left text-xs font-medium text-light-3 uppercase tracking-wider">负责人</th>
+                  <th class="px-5 py-3 text-left text-xs font-medium text-light-3 uppercase tracking-wider">默认上游</th>
+                  <th class="px-5 py-3 text-left text-xs font-medium text-light-3 uppercase tracking-wider">QPS/并发/配额</th>
+                  <th class="px-5 py-3 text-left text-xs font-medium text-light-3 uppercase tracking-wider">请求大小/超时</th>
+                  <th class="px-5 py-3 text-left text-xs font-medium text-light-3 uppercase tracking-wider">状态</th>
+                  <th class="px-5 py-3 text-left text-xs font-medium text-light-3 uppercase tracking-wider">创建/更新时间</th>
+                  <th class="px-5 py-3 text-right text-xs font-medium text-light-3 uppercase tracking-wider">操作</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-light-2">
+                <!-- 命名空间1 -->
+                <tr class="hover:bg-gray-50 transition-colors">
+                  <td class="px-5 py-4 whitespace-nowrap font-medium">ns-enterprise-001</td>
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">企业版模型服务</td>
+                  <td class="px-5 py-4 whitespace-nowrap">
+                    <div class="flex items-center">
+                      <img src="https://picsum.photos/id/1001/200/200" alt="用户头像" class="w-6 h-6 rounded-full mr-2">
+                      <span>张三</span>
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">llm-gpt4-prod</td>
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">
+                    <div class="flex flex-col space-y-0.5">
+                      <span>QPS: 100</span>
+                      <span>并发: 50</span>
+                      <span>配额: 10万/天</span>
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">
+                    <div class="flex flex-col space-y-0.5">
+                      <span>最大: 10MB</span>
+                      <span>超时: 30s</span>
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap">
+                    <div class="flex items-center">
+                      <span class="w-2 h-2 rounded-full bg-success mr-2"></span>
+                      <span class="text-sm text-success">启用</span>
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">
+                    <div class="flex flex-col space-y-0.5">
+                      <span>2023-06-15</span>
+                      <span>2023-07-02</span>
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <div class="flex justify-end space-x-2">
+                      <button class="text-primary hover:text-primary/80 p-1" title="查看">
+                        <i class="fa fa-eye"></i>
+                      </button>
+                      <button class="text-dark-2 hover:text-primary p-1" title="编辑">
+                        <i class="fa fa-edit"></i>
+                      </button>
+                      <button class="text-warning hover:text-warning/80 p-1" title="禁用">
+                        <i class="fa fa-power-off"></i>
+                      </button>
+                      <button class="text-dark-2 hover:text-danger p-1" title="删除">
+                        <i class="fa fa-trash"></i>
+                      </button>
+                      <button class="text-dark-2 hover:text-primary p-1" title="导出">
+                        <i class="fa fa-download"></i>
+                      </button>
+                      <button class="text-dark-2 hover:text-primary p-1" title="同步">
+                        <i class="fa fa-refresh"></i>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                
+                <!-- 命名空间2 -->
+                <tr class="hover:bg-gray-50 transition-colors">
+                  <td class="px-5 py-4 whitespace-nowrap font-medium">ns-dev-002</td>
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">开发测试模型服务</td>
+                  <td class="px-5 py-4 whitespace-nowrap">
+                    <div class="flex items-center">
+                      <img src="https://picsum.photos/id/1002/200/200" alt="用户头像" class="w-6 h-6 rounded-full mr-2">
+                      <span>李四</span>
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">llm-bloom-dev</td>
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">
+                    <div class="flex flex-col space-y-0.5">
+                      <span>QPS: 50</span>
+                      <span>并发: 20</span>
+                      <span>配额: 5万/天</span>
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">
+                    <div class="flex flex-col space-y-0.5">
+                      <span>最大: 5MB</span>
+                      <span>超时: 60s</span>
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap">
+                    <div class="flex items-center">
+                      <span class="w-2 h-2 rounded-full bg-success mr-2"></span>
+                      <span class="text-sm text-success">启用</span>
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">
+                    <div class="flex flex-col space-y-0.5">
+                      <span>2023-06-10</span>
+                      <span>2023-06-28</span>
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <div class="flex justify-end space-x-2">
+                      <button class="text-primary hover:text-primary/80 p-1" title="查看">
+                        <i class="fa fa-eye"></i>
+                      </button>
+                      <button class="text-dark-2 hover:text-primary p-1" title="编辑">
+                        <i class="fa fa-edit"></i>
+                      </button>
+                      <button class="text-warning hover:text-warning/80 p-1" title="禁用">
+                        <i class="fa fa-power-off"></i>
+                      </button>
+                      <button class="text-dark-2 hover:text-danger p-1" title="删除">
+                        <i class="fa fa-trash"></i>
+                      </button>
+                      <button class="text-dark-2 hover:text-primary p-1" title="导出">
+                        <i class="fa fa-download"></i>
+                      </button>
+                      <button class="text-dark-2 hover:text-primary p-1" title="同步">
+                        <i class="fa fa-refresh"></i>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                
+                <!-- 命名空间3 -->
+                <tr class="hover:bg-gray-50 transition-colors">
+                  <td class="px-5 py-4 whitespace-nowrap font-medium">ns-test-003</td>
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">测试环境模型服务</td>
+                  <td class="px-5 py-4 whitespace-nowrap">
+                    <div class="flex items-center">
+                      <img src="https://picsum.photos/id/1003/200/200" alt="用户头像" class="w-6 h-6 rounded-full mr-2">
+                      <span>王五</span>
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap text-sm text-danger">未绑定</td>
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">
+                    <div class="flex flex-col space-y-0.5">
+                      <span>QPS: 20</span>
+                      <span>并发: 10</span>
+                      <span>配额: 1万/天</span>
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">
+                    <div class="flex flex-col space-y-0.5">
+                      <span>最大: 2MB</span>
+                      <span>超时: 120s</span>
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap">
+                    <div class="flex items-center">
+                      <span class="w-2 h-2 rounded-full bg-light-3 mr-2"></span>
+                      <span class="text-sm text-light-3">禁用</span>
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">
+                    <div class="flex flex-col space-y-0.5">
+                      <span>2023-05-28</span>
+                      <span>2023-05-28</span>
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <div class="flex justify-end space-x-2">
+                      <button class="text-primary hover:text-primary/80 p-1" title="查看">
+                        <i class="fa fa-eye"></i>
+                      </button>
+                      <button class="text-dark-2 hover:text-primary p-1" title="编辑">
+                        <i class="fa fa-edit"></i>
+                      </button>
+                      <button class="text-success hover:text-success/80 p-1" title="启用">
+                        <i class="fa fa-power-off"></i>
+                      </button>
+                      <button class="text-dark-2 hover:text-danger p-1" title="删除">
+                        <i class="fa fa-trash"></i>
+                      </button>
+                      <button class="text-dark-2 hover:text-primary p-1" title="导出">
+                        <i class="fa fa-download"></i>
+                      </button>
+                      <button class="text-dark-2 hover:text-primary p-1" title="同步">
+                        <i class="fa fa-refresh"></i>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                
+                <!-- 命名空间4 -->
+                <tr class="hover:bg-gray-50 transition-colors">
+                  <td class="px-5 py-4 whitespace-nowrap font-medium">ns-internal-004</td>
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">内部业务模型服务</td>
+                  <td class="px-5 py-4 whitespace-nowrap">
+                    <div class="flex items-center">
+                      <img src="https://picsum.photos/id/1004/200/200" alt="用户头像" class="w-6 h-6 rounded-full mr-2">
+                      <span>赵六</span>
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">llm-chatglm-prod</td>
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">
+                    <div class="flex flex-col space-y-0.5">
+                      <span>QPS: 80</span>
+                      <span>并发: 40</span>
+                      <span class="text-warning">配额: 8万/天(告警)</span>
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">
+                    <div class="flex flex-col space-y-0.5">
+                      <span>最大: 8MB</span>
+                      <span>超时: 45s</span>
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap">
+                    <div class="flex items-center">
+                      <span class="w-2 h-2 rounded-full bg-success mr-2"></span>
+                      <span class="text-sm text-success">启用</span>
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">
+                    <div class="flex flex-col space-y-0.5">
+                      <span>2023-06-02</span>
+                      <span>2023-07-01</span>
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <div class="flex justify-end space-x-2">
+                      <button class="text-primary hover:text-primary/80 p-1" title="查看">
+                        <i class="fa fa-eye"></i>
+                      </button>
+                      <button class="text-dark-2 hover:text-primary p-1" title="编辑">
+                        <i class="fa fa-edit"></i>
+                      </button>
+                      <button class="text-warning hover:text-warning/80 p-1" title="禁用">
+                        <i class="fa fa-power-off"></i>
+                      </button>
+                      <button class="text-dark-2 hover:text-danger p-1" title="删除">
+                        <i class="fa fa-trash"></i>
+                      </button>
+                      <button class="text-dark-2 hover:text-primary p-1" title="导出">
+                        <i class="fa fa-download"></i>
+                      </button>
+                      <button class="text-dark-2 hover:text-primary p-1" title="同步">
+                        <i class="fa fa-refresh"></i>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          
+          <!-- 分页 -->
+          <div class="px-5 py-3 border-t border-light-2 flex justify-between items-center">
+            <div class="text-sm text-light-3">
+              显示 <span class="font-medium">1</span> 到 <span class="font-medium">4</span> 条，共 <span class="font-medium">36</span> 条记录
+            </div>
+            <div class="flex space-x-1">
+              <button class="w-8 h-8 flex items-center justify-center rounded border border-light-2 text-light-3 hover:border-primary hover:text-primary transition-colors">
+                <i class="fa fa-angle-left"></i>
+              </button>
+              <button class="w-8 h-8 flex items-center justify-center rounded border border-primary bg-primary text-white">1</button>
+              <button class="w-8 h-8 flex items-center justify-center rounded border border-light-2 hover:border-primary hover:text-primary transition-colors">2</button>
+              <button class="w-8 h-8 flex items-center justify-center rounded border border-light-2 hover:border-primary hover:text-primary transition-colors">3</button>
+              <button class="w-8 h-8 flex items-center justify-center rounded border border-light-2 hover:border-primary hover:text-primary transition-colors">4</button>
+              <button class="w-8 h-8 flex items-center justify-center rounded border border-light-2 hover:border-primary hover:text-primary transition-colors">5</button>
+              <button class="w-8 h-8 flex items-center justify-center rounded border border-light-2 text-light-3 hover:border-primary hover:text-primary transition-colors">
+                <i class="fa fa-angle-right"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 命名空间详情示例 -->
+        <div class="bg-white rounded-xl card-shadow overflow-hidden mt-6">
+          <div class="p-5 border-b border-light-2">
+            <h3 class="font-semibold text-lg">命名空间详情 <span class="text-sm text-light-3 font-normal ml-2">ns-enterprise-001</span></h3>
+          </div>
+          
+          <!-- 详情页签 -->
+          <div class="border-b border-light-2">
+            <div class="flex overflow-x-auto scrollbar-hide">
+              <button class="px-6 py-3 border-b-2 border-primary text-primary font-medium">路由规则</button>
+              <button class="px-6 py-3 border-b-2 border-transparent text-dark-2 hover:text-primary transition-colors">上游绑定</button>
+              <button class="px-6 py-3 border-b-2 border-transparent text-dark-2 hover:text-primary transition-colors">鉴权策略</button>
+              <button class="px-6 py-3 border-b-2 border-transparent text-dark-2 hover:text-primary transition-colors">限流/配额</button>
+              <button class="px-6 py-3 border-b-2 border-transparent text-dark-2 hover:text-primary transition-colors">灰度发布</button>
+              <button class="px-6 py-3 border-b-2 border-transparent text-dark-2 hover:text-primary transition-colors">访问密钥</button>
+            </div>
+          </div>
+          
+          <!-- 路由规则内容 -->
+          <div class="p-5">
+            <div class="flex justify-between items-center mb-6">
+              <h4 class="font-medium">已绑定规则清单</h4>
+              <div class="flex space-x-3">
+                <button class="text-sm flex items-center text-primary hover:text-primary/80">
+                  <i class="fa fa-plus mr-1"></i> 绑定规则
+                </button>
+                <button class="text-sm flex items-center text-primary hover:text-primary/80">
+                  <i class="fa fa-sort mr-1"></i> 排序规则
+                </button>
+                <button class="text-sm flex items-center text-primary hover:text-primary/80">
+                  <i class="fa fa-exclamation-triangle mr-1"></i> 冲突检测
+                </button>
+              </div>
+            </div>
+            
+            <div class="overflow-x-auto">
+              <table class="w-full">
+                <thead>
+                  <tr class="bg-gray-50">
+                    <th class="px-4 py-3 text-left text-xs font-medium text-light-3 uppercase tracking-wider">规则名称</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-light-3 uppercase tracking-wider">路由类型</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-light-3 uppercase tracking-wider">匹配模式</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-light-3 uppercase tracking-wider">优先级</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-light-3 uppercase tracking-wider">状态</th>
+                    <th class="px-4 py-3 text-right text-xs font-medium text-light-3 uppercase tracking-wider">操作</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-light-2">
+                  <tr class="hover:bg-gray-50 transition-colors">
+                    <td class="px-4 py-3 whitespace-nowrap font-medium">enterprise-gpt4-route</td>
+                    <td class="px-4 py-3 whitespace-nowrap">
+                      <span class="policy-badge bg-blue-100 text-blue-800">前缀匹配</span>
+                    </td>
+                    <td class="px-4 py-3 whitespace-nowrap text-sm">/v1/enterprise/gpt4/*</td>
+                    <td class="px-4 py-3 whitespace-nowrap">
+                      <span class="token-badge bg-red-100 text-red-800">1 (最高)</span>
+                    </td>
+                    <td class="px-4 py-3 whitespace-nowrap">
+                      <div class="flex items-center">
+                        <span class="w-2 h-2 rounded-full bg-success mr-2"></span>
+                        <span class="text-sm text-success">启用</span>
+                      </div>
+                    </td>
+                    <td class="px-4 py-3 whitespace-nowrap text-right text-sm">
+                      <button class="text-primary hover:text-primary/80 mr-3">查看</button>
+                      <button class="text-dark-2 hover:text-danger">解绑</button>
+                    </td>
+                  </tr>
+                  <tr class="hover:bg-gray-50 transition-colors">
+                    <td class="px-4 py-3 whitespace-nowrap font-medium">enterprise-fallback-route</td>
+                    <td class="px-4 py-3 whitespace-nowrap">
+                      <span class="policy-badge bg-purple-100 text-purple-800">权重路由</span>
+                    </td>
+                    <td class="px-4 py-3 whitespace-nowrap text-sm">/v1/enterprise/*</td>
+                    <td class="px-4 py-3 whitespace-nowrap">
+                      <span class="token-badge bg-orange-100 text-orange-800">3</span>
+                    </td>
+                    <td class="px-4 py-3 whitespace-nowrap">
+                      <div class="flex items-center">
+                        <span class="w-2 h-2 rounded-full bg-success mr-2"></span>
+                        <span class="text-sm text-success">启用</span>
+                      </div>
+                    </td>
+                    <td class="px-4 py-3 whitespace-nowrap text-right text-sm">
+                      <button class="text-primary hover:text-primary/80 mr-3">查看</button>
+                      <button class="text-dark-2 hover:text-danger">解绑</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    // 命名空间状态分布图表
+    const namespaceStatusCtx = document.getElementById('namespaceStatusChart').getContext('2d');
+    new Chart(namespaceStatusCtx, {
+      type: 'doughnut',
+      data: {
+        labels: ['启用', '禁用', '限额告警', '无上游绑定'],
+        datasets: [{
+          data: [29, 4, 5, 3],
+          backgroundColor: [
+            '#00B42A',
+            '#C9CDD4',
+            '#FF7D00',
+            '#F53F3F'
+          ],
+          borderWidth: 0,
+          hoverOffset: 4
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'right',
+            labels: {
+              boxWidth: 12,
+              padding: 15
+            }
+          }
+        },
+        cutout: '65%'
+      }
+    });
+
+    // 命名空间请求趋势图表
+    const namespaceRequestCtx = document.getElementById('namespaceRequestChart').getContext('2d');
+    new Chart(namespaceRequestCtx, {
+      type: 'line',
+      data: {
+        labels: ['00:00', '03:00', '06:00', '09:00', '12:00', '15:00', '18:00', '21:00'],
+        datasets: [{
+          label: '企业版',
+          data: [1200, 850, 600, 1900, 3200, 4500, 3800, 2100],
+          borderColor: '#165DFF',
+          backgroundColor: 'rgba(22, 93, 255, 0.1)',
+          tension: 0.4,
+          fill: true
+        }, {
+          label: '开发测试',
+          data: [500, 300, 200, 900, 1500, 2100, 1800, 900],
+          borderColor: '#00B42A',
+          backgroundColor: 'rgba(0, 180, 42, 0.1)',
+          tension: 0.4,
+          fill: true
+        }, {
+          label: '内部业务',
+          data: [800, 500, 300, 1200, 2100, 2800, 2500, 1500],
+          borderColor: '#722ED1',
+          backgroundColor: 'rgba(114, 46, 209, 0.1)',
+          tension: 0.4,
+          fill: true
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'top',
+            labels: {
+              boxWidth: 12,
+              padding: 15
+            }
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            grid: {
+              color: 'rgba(0, 0, 0, 0.05)'
+            }
+          },
+          x: {
+            grid: {
+              display: false
+            }
+          }
+        }
+      }
+    });
+  </script>
+</body>
+</html>

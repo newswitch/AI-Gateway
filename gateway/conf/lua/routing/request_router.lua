@@ -4,6 +4,7 @@
 local _M = {}
 
 local cjson = require "cjson"
+local svc = require "utils.service_config"
 
 -- 健康检查处理
 function _M.handle_health_check()
@@ -84,7 +85,8 @@ function _M.check_redis_health()
     local red = redis:new()
     red:set_timeout(1000)
     
-    local ok, err = red:connect("redis", 6379)
+    local rc = svc.get_redis_config()
+    local ok, err = red:connect(rc.host, rc.port or 6379)
     if not ok then
         return false
     end
@@ -101,7 +103,8 @@ function _M.check_config_center_health()
     local httpc = http.new()
     httpc:set_timeout(2000)
     
-    local res, err = httpc:request_uri("http://config-center:8000/health", {
+    local base = svc.get_config_center_base_url()
+    local res, err = httpc:request_uri(base .. "/health", {
         method = "GET",
         headers = {
             ["User-Agent"] = "AI-Gateway-Health-Check"

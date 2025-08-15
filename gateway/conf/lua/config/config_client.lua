@@ -7,7 +7,10 @@ local cjson = require "cjson"
 local http = require "resty.http"
 
 -- 配置中心基础URL
-local CONFIG_CENTER_BASE_URL = "http://config-center:8000"
+-- 在 K8s 中使用 Service 名称
+-- 使用完整 K8s FQDN，避免解析 search 域依赖
+local svc = require "utils.service_config"
+local CONFIG_CENTER_BASE_URL = svc.get_config_center_base_url()
 
 -- HTTP请求封装
 local function make_request(method, path, data, headers)

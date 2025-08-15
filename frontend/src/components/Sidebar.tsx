@@ -1,5 +1,5 @@
 import React from 'react'
-import { Layout, Menu } from 'antd'
+import { Layout, Menu, type MenuProps } from 'antd'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
   DashboardOutlined,
@@ -18,7 +18,7 @@ const Sidebar: React.FC = () => {
   const navigate = useNavigate()
   const location = useLocation()
 
-  const menuItems = [
+  const menuItems: MenuProps['items'] = [
     {
       key: '/',
       icon: <DashboardOutlined />,

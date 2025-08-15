@@ -7,7 +7,8 @@ WORKDIR /app
 # 复制package文件
 COPY package*.json ./
 
-# 安装所有依赖（包括开发依赖，因为构建时需要TypeScript）
+# 确保安装开发依赖（构建阶段需要 TypeScript）
+ENV NODE_ENV=development
 RUN npm install && npm cache clean --force
 
 # 复制源代码

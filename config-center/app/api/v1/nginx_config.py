@@ -4,7 +4,7 @@ Nginx配置管理API
 
 import logging
 from typing import List, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from app.models import DatabaseManager
@@ -32,6 +32,18 @@ def get_db() -> DatabaseManager:
     """获取数据库管理器"""
     from app.core.dependencies import get_db_manager
     return get_db_manager()
+
+@router.get("/nginx-configs", response_model=List[Dict[str, Any]])
+async def list_nginx_configs(config_type: str | None = Query(None, description="可选：按类型过滤")):
+    """获取所有nginx配置，支持可选类型过滤"""
+    try:
+        db = get_db()
+        if config_type:
+            return await db.get_nginx_configs_by_type(config_type)
+        return await db.get_all_nginx_configs()
+    except Exception as e:
+        logger.error(f"获取nginx配置列表失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取nginx配置列表失败: {str(e)}")
 
 @router.get("/nginx-configs/{config_type}", response_model=List[Dict[str, Any]])
 async def get_nginx_configs_by_type(config_type: str):

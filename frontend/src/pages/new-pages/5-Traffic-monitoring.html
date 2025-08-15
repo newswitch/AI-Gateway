@@ -1,0 +1,1180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>流量监控 | 大模型网关配置中心</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+  
+  <!-- Tailwind 配置 -->
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#165DFF',
+            secondary: '#0FC6C2',
+            success: '#00B42A',
+            warning: '#FF7D00',
+            danger: '#F53F3F',
+            dark: '#1D2129',
+            'dark-2': '#4E5969',
+            'light-1': '#F2F3F5',
+            'light-2': '#E5E6EB',
+            'light-3': '#C9CDD4',
+          },
+          fontFamily: {
+            inter: ['Inter', 'system-ui', 'sans-serif'],
+          },
+        },
+      }
+    }
+  </script>
+  
+  <!-- 自定义工具类 -->
+  <style type="text/tailwindcss">
+    @layer utilities {
+      .content-auto {
+        content-visibility: auto;
+      }
+      .scrollbar-hide {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+      .scrollbar-hide::-webkit-scrollbar {
+        display: none;
+      }
+      .card-shadow {
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+      }
+      .card-hover {
+        transition: all 0.3s ease;
+      }
+      .card-hover:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+      }
+      .token-badge {
+        @apply px-2 py-1 rounded-full text-xs font-medium;
+      }
+      .policy-badge {
+        @apply px-2 py-0.5 rounded-full text-xs font-medium;
+      }
+      .pulse-animation {
+        animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      }
+      .heatmap-cell {
+        transition: all 0.2s ease;
+      }
+      .heatmap-cell:hover {
+        transform: scale(1.1);
+        z-index: 10;
+      }
+      .alert-bubble {
+        animation: float 3s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+      }
+      @keyframes float {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-10px); }
+      }
+    }
+  </style>
+</head>
+<body class="bg-gray-50 font-inter text-dark min-h-screen flex flex-col">
+  <!-- 顶部导航栏 -->
+  <header class="bg-white border-b border-light-2 sticky top-0 z-50 transition-all duration-300" id="navbar">
+    <div class="container mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex justify-between items-center h-16">
+        <!-- Logo 和标题 -->
+        <div class="flex items-center space-x-2">
+          <div class="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
+            <i class="fa fa-server text-white text-xl"></i>
+          </div>
+          <div>
+            <h1 class="text-lg font-bold text-dark">大模型网关配置中心</h1>
+            <p class="text-xs text-light-3">LLM Gateway Configuration</p>
+          </div>
+        </div>
+        
+        <!-- 搜索栏 -->
+        <div class="hidden md:block flex-grow max-w-md mx-8">
+          <div class="relative">
+            <span class="absolute inset-y-0 left-0 flex items-center pl-3">
+              <i class="fa fa-search text-light-3"></i>
+            </span>
+            <input type="text" placeholder="搜索监控指标或模型..." class="w-full pl-10 pr-4 py-2 rounded-lg border border-light-2 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all">
+          </div>
+        </div>
+        
+        <!-- 用户菜单 -->
+        <div class="flex items-center space-x-4">
+          <button class="text-light-3 hover:text-primary transition-colors relative">
+            <i class="fa fa-bell-o text-xl"></i>
+            <span class="absolute -top-1 -right-1 w-4 h-4 bg-danger rounded-full text-white text-xs flex items-center justify-center">3</span>
+          </button>
+          <button class="text-light-3 hover:text-primary transition-colors">
+            <i class="fa fa-cog text-xl"></i>
+          </button>
+          <div class="flex items-center space-x-2 cursor-pointer group">
+            <img src="https://picsum.photos/id/1005/200/200" alt="用户头像" class="w-8 h-8 rounded-full object-cover border-2 border-transparent group-hover:border-primary transition-all">
+            <span class="hidden md:inline text-sm font-medium">管理员</span>
+            <i class="fa fa-angle-down text-light-3 group-hover:text-primary transition-colors"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="flex flex-1 overflow-hidden">
+    <!-- 侧边栏 -->
+    <aside class="w-64 bg-white border-r border-light-2 flex-shrink-0 hidden md:block overflow-y-auto scrollbar-hide transition-all duration-300" id="sidebar">
+      <nav class="py-4">
+        <div class="px-4 py-2 mb-4">
+          <p class="text-xs font-medium text-light-3 uppercase tracking-wider">主菜单</p>
+        </div>
+        
+        <a href="#" class="flex items-center px-4 py-3 text-primary bg-primary/5 border-r-4 border-primary">
+          <i class="fa fa-dashboard w-5 text-center mr-3"></i>
+          <span>总览</span>
+        </a>
+        
+        <a href="model-routing.html" class="flex items-center px-4 py-3 text-dark-2 hover:bg-light-1 transition-colors">
+          <i class="fa fa-exchange w-5 text-center mr-3"></i>
+          <span>模型路由</span>
+        </a>
+        
+        <a href="#" class="flex items-center px-4 py-3 text-primary bg-primary/5 border-r-4 border-primary">
+          <i class="fa fa-cubes w-5 text-center mr-3"></i>
+          <span>命名空间管理</span>
+        </a>
+        
+        <a href="policy-configuration.html" class="flex items-center px-4 py-3 text-dark-2 hover:bg-light-1 transition-colors">
+          <i class="fa fa-filter w-5 text-center mr-3"></i>
+          <span>策略配置</span>
+        </a>
+              
+        <a href="traffic-monitoring.html" class="flex items-center px-4 py-3 text-dark-2 hover:bg-light-1 transition-colors">
+          <i class="fa fa-bar-chart w-5 text-center mr-3"></i>
+          <span>流量监控</span>
+        </a>
+        
+        <a href="access-logs.html" class="flex items-center px-4 py-3 text-dark-2 hover:bg-light-1 transition-colors">
+          <i class="fa fa-history w-5 text-center mr-3"></i>
+          <span>访问日志</span>
+        </a>
+      </nav>
+    </aside>
+
+    <!-- 主内容区 -->
+    <main class="flex-1 overflow-y-auto bg-gray-50 scrollbar-hide relative">
+      <!-- 告警气泡 - 绝对定位在右上角 -->
+      <div class="absolute top-6 right-6 z-10 w-72 bg-white rounded-xl p-4 shadow-lg border-l-4 border-danger alert-bubble">
+        <div class="flex items-start">
+          <div class="flex-shrink-0">
+            <i class="fa fa-exclamation-circle text-danger text-xl"></i>
+          </div>
+          <div class="ml-3">
+            <p class="text-sm font-medium text-dark">错误率突增警告</p>
+            <p class="text-xs text-dark-2 mt-1">API /v1/chat/completions 5xx错误率超过阈值 1.5%</p>
+            <div class="mt-2 flex space-x-2">
+              <button class="text-xs bg-primary text-white px-2 py-1 rounded">查看详情</button>
+              <button class="text-xs bg-light-1 text-dark-2 px-2 py-1 rounded">忽略</button>
+            </div>
+          </div>
+          <button class="ml-auto text-light-3 hover:text-dark-2">
+            <i class="fa fa-times"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <!-- 页面标题 -->
+        <div class="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 class="text-[clamp(1.5rem,3vw,2rem)] font-bold text-dark">流量监控中心</h2>
+            <p class="text-light-3 mt-1">实时监控大模型网关的流量状况和请求分布</p>
+          </div>
+          <div class="mt-4 sm:mt-0 flex space-x-3">
+            <button id="refreshDataBtn" class="bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg transition-colors flex items-center">
+              <i class="fa fa-refresh mr-2"></i>
+              <span>刷新数据</span>
+            </button>
+            <div class="relative">
+              <select class="pl-3 pr-8 py-2 border border-light-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary appearance-none bg-white">
+                <option>实时监控</option>
+                <option>今日统计</option>
+                <option>本周统计</option>
+                <option>本月统计</option>
+              </select>
+              <i class="fa fa-chevron-down absolute right-3 top-3 text-light-3 pointer-events-none text-xs"></i>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 维度筛选 -->
+        <div class="bg-white rounded-xl p-5 card-shadow mb-6">
+          <h3 class="font-semibold text-lg mb-4">维度筛选</h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div class="relative">
+              <label class="block text-xs text-light-3 mb-1">命名空间</label>
+              <select class="w-full pl-3 pr-8 py-2 border border-light-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary appearance-none">
+                <option value="">全部命名空间</option>
+                <option value="default">default</option>
+                <option value="prod">prod</option>
+                <option value="test">test</option>
+                <option value="dev">dev</option>
+              </select>
+              <i class="fa fa-chevron-down absolute right-3 top-8 text-light-3 pointer-events-none text-xs"></i>
+            </div>
+            
+            <div class="relative">
+              <label class="block text-xs text-light-3 mb-1">规则</label>
+              <select class="w-full pl-3 pr-8 py-2 border border-light-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary appearance-none">
+                <option value="">全部规则</option>
+                <option value="rate_limit">限流规则</option>
+                <option value="retry">重试规则</option>
+                <option value="circuit_breaker">熔断规则</option>
+                <option value="cache">缓存规则</option>
+              </select>
+              <i class="fa fa-chevron-down absolute right-3 top-8 text-light-3 pointer-events-none text-xs"></i>
+            </div>
+            
+            <div class="relative">
+              <label class="block text-xs text-light-3 mb-1">上游服务</label>
+              <select class="w-full pl-3 pr-8 py-2 border border-light-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary appearance-none">
+                <option value="">全部上游</option>
+                <option value="gpt-4">gpt-4</option>
+                <option value="gpt-3.5">gpt-3.5</option>
+                <option value="chatglm">chatglm</option>
+                <option value="llama">llama</option>
+              </select>
+              <i class="fa fa-chevron-down absolute right-3 top-8 text-light-3 pointer-events-none text-xs"></i>
+            </div>
+            
+            <div class="relative">
+              <label class="block text-xs text-light-3 mb-1">状态码</label>
+              <select class="w-full pl-3 pr-8 py-2 border border-light-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary appearance-none">
+                <option value="">全部状态码</option>
+                <option value="2xx">2xx (成功)</option>
+                <option value="4xx">4xx (客户端错误)</option>
+                <option value="5xx">5xx (服务端错误)</option>
+                <option value="404">404 (未找到)</option>
+                <option value="500">500 (服务器错误)</option>
+              </select>
+              <i class="fa fa-chevron-down absolute right-3 top-8 text-light-3 pointer-events-none text-xs"></i>
+            </div>
+            
+            <div class="relative">
+              <label class="block text-xs text-light-3 mb-1">请求方法</label>
+              <select class="w-full pl-3 pr-8 py-2 border border-light-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary appearance-none">
+                <option value="">全部方法</option>
+                <option value="GET">GET</option>
+                <option value="POST">POST</option>
+                <option value="PUT">PUT</option>
+                <option value="DELETE">DELETE</option>
+              </select>
+              <i class="fa fa-chevron-down absolute right-3 top-8 text-light-3 pointer-events-none text-xs"></i>
+            </div>
+            
+            <div>
+              <label class="block text-xs text-light-3 mb-1">客户端IP</label>
+              <input type="text" placeholder="输入客户端IP" class="w-full pl-3 pr-3 py-2 border border-light-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary">
+            </div>
+            
+            <div>
+              <label class="block text-xs text-light-3 mb-1">API Key</label>
+              <input type="text" placeholder="输入API Key" class="w-full pl-3 pr-3 py-2 border border-light-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary">
+            </div>
+            
+            <div>
+              <label class="block text-xs text-light-3 mb-1">路径前缀</label>
+              <input type="text" placeholder="如 /api/v1/" class="w-full pl-3 pr-3 py-2 border border-light-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary">
+            </div>
+          </div>
+          
+          <div class="mt-4 flex justify-end space-x-3">
+            <button class="px-4 py-2 border border-light-2 rounded-lg text-sm text-dark-2 hover:bg-light-1 transition-colors">
+              重置筛选
+            </button>
+            <button class="px-4 py-2 bg-primary text-white rounded-lg text-sm hover:bg-primary/90 transition-colors">
+              应用筛选
+            </button>
+          </div>
+        </div>
+        
+        <!-- 指标卡 -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-6">
+          <div class="bg-white rounded-xl p-5 card-shadow card-hover">
+            <div class="flex justify-between items-start">
+              <div>
+                <p class="text-light-3 text-sm">总请求</p>
+                <h3 class="text-2xl font-bold mt-1">148,523</h3>
+                <p class="text-success text-xs mt-2 flex items-center">
+                  <i class="fa fa-arrow-up mr-1"></i>
+                  <span>较昨日增长 12.5%</span>
+                </p>
+              </div>
+              <div class="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+                <i class="fa fa-signal text-xl"></i>
+              </div>
+            </div>
+          </div>
+          
+          <div class="bg-white rounded-xl p-5 card-shadow card-hover">
+            <div class="flex justify-between items-start">
+              <div>
+                <p class="text-light-3 text-sm">成功率</p>
+                <h3 class="text-2xl font-bold mt-1">99.68%</h3>
+                <p class="text-danger text-xs mt-2 flex items-center">
+                  <i class="fa fa-arrow-down mr-1"></i>
+                  <span>较昨日下降 0.05%</span>
+                </p>
+              </div>
+              <div class="w-12 h-12 rounded-lg bg-success/10 flex items-center justify-center text-success">
+                <i class="fa fa-check-circle text-xl"></i>
+              </div>
+            </div>
+          </div>
+          
+          <div class="bg-white rounded-xl p-5 card-shadow card-hover">
+            <div class="flex justify-between items-start">
+              <div>
+                <p class="text-light-3 text-sm">平均延迟</p>
+                <h3 class="text-2xl font-bold mt-1">187ms</h3>
+                <p class="text-success text-xs mt-2 flex items-center">
+                  <i class="fa fa-arrow-down mr-1"></i>
+                  <span>较昨日下降 12ms</span>
+                </p>
+              </div>
+              <div class="w-12 h-12 rounded-lg bg-secondary/10 flex items-center justify-center text-secondary">
+                <i class="fa fa-clock-o text-xl"></i>
+              </div>
+            </div>
+          </div>
+          
+          <div class="bg-white rounded-xl p-5 card-shadow card-hover">
+            <div class="flex justify-between items-start">
+              <div>
+                <p class="text-light-3 text-sm">P95/P99 延迟</p>
+                <h3 class="text-2xl font-bold mt-1">320ms / 580ms</h3>
+                <p class="text-warning text-xs mt-2 flex items-center">
+                  <i class="fa fa-arrow-up mr-1"></i>
+                  <span>P99 较昨日上升 30ms</span>
+                </p>
+              </div>
+              <div class="w-12 h-12 rounded-lg bg-warning/10 flex items-center justify-center text-warning">
+                <i class="fa fa-tachometer text-xl"></i>
+              </div>
+            </div>
+          </div>
+          
+          <div class="bg-white rounded-xl p-5 card-shadow card-hover">
+            <div class="flex justify-between items-start">
+              <div>
+                <p class="text-light-3 text-sm">4xx / 5xx 错误</p>
+                <h3 class="text-2xl font-bold mt-1">412 / 173</h3>
+                <p class="text-danger text-xs mt-2 flex items-center">
+                  <i class="fa fa-arrow-up mr-1"></i>
+                  <span>5xx 较昨日增长 24%</span>
+                </p>
+              </div>
+              <div class="w-12 h-12 rounded-lg bg-danger/10 flex items-center justify-center text-danger">
+                <i class="fa fa-exclamation-circle text-xl"></i>
+              </div>
+            </div>
+          </div>
+          
+          <div class="bg-white rounded-xl p-5 card-shadow card-hover">
+            <div class="flex justify-between items-start">
+              <div>
+                <p class="text-light-3 text-sm">限流次数</p>
+                <h3 class="text-2xl font-bold mt-1">1,284</h3>
+                <p class="text-warning text-xs mt-2 flex items-center">
+                  <i class="fa fa-arrow-up mr-1"></i>
+                  <span>较昨日增长 8.2%</span>
+                </p>
+              </div>
+              <div class="w-12 h-12 rounded-lg bg-warning/10 flex items-center justify-center text-warning">
+                <i class="fa fa-ban text-xl"></i>
+              </div>
+            </div>
+          </div>
+          
+          <div class="bg-white rounded-xl p-5 card-shadow card-hover">
+            <div class="flex justify-between items-start">
+              <div>
+                <p class="text-light-3 text-sm">重试次数</p>
+                <h3 class="text-2xl font-bold mt-1">3,521</h3>
+                <p class="text-success text-xs mt-2 flex items-center">
+                  <i class="fa fa-arrow-down mr-1"></i>
+                  <span>较昨日下降 15.3%</span>
+                </p>
+              </div>
+              <div class="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
+                <i class="fa fa-refresh text-xl"></i>
+              </div>
+            </div>
+          </div>
+          
+          <div class="bg-white rounded-xl p-5 card-shadow card-hover">
+            <div class="flex justify-between items-start">
+              <div>
+                <p class="text-light-3 text-sm">熔断次数</p>
+                <h3 class="text-2xl font-bold mt-1">42</h3>
+                <p class="text-danger text-xs mt-2 flex items-center">
+                  <i class="fa fa-arrow-up mr-1"></i>
+                  <span>较昨日增长 3 次</span>
+                </p>
+              </div>
+              <div class="w-12 h-12 rounded-lg bg-danger/10 flex items-center justify-center text-danger">
+                <i class="fa fa-power-off text-xl"></i>
+              </div>
+            </div>
+          </div>
+          
+          <div class="bg-white rounded-xl p-5 card-shadow card-hover xl:col-span-2">
+            <div class="flex justify-between items-start">
+              <div>
+                <p class="text-light-3 text-sm">缓存命中率</p>
+                <h3 class="text-2xl font-bold mt-1">68.4%</h3>
+                <p class="text-success text-xs mt-2 flex items-center">
+                  <i class="fa fa-arrow-up mr-1"></i>
+                  <span>较昨日上升 3.2%</span>
+                </p>
+              </div>
+              <div class="w-12 h-12 rounded-lg bg-success/10 flex items-center justify-center text-success">
+                <i class="fa fa-database text-xl"></i>
+              </div>
+            </div>
+            <div class="mt-4 h-10 bg-light-1 rounded-full overflow-hidden">
+              <div class="h-full bg-success rounded-full" style="width: 68.4%"></div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 趋势图：请求量/成功率/延迟（同轴） -->
+        <div class="bg-white rounded-xl p-5 card-shadow mb-6">
+          <div class="flex justify-between items-center mb-6">
+            <div class="flex items-center">
+              <h3 class="font-semibold text-lg mr-2">请求量/成功率/延迟趋势</h3>
+              <span class="flex items-center text-success text-xs bg-success/10 px-2 py-0.5 rounded-full">
+                <span class="w-2 h-2 rounded-full bg-success mr-1 pulse-animation"></span>
+                实时更新
+              </span>
+            </div>
+            <div class="flex space-x-2">
+              <button class="px-3 py-1 text-xs bg-primary/10 text-primary rounded-full">过去24小时</button>
+              <button class="px-3 py-1 text-xs bg-light-1 text-dark-2 rounded-full hover:bg-primary/10 hover:text-primary transition-colors">过去7天</button>
+              <button class="px-3 py-1 text-xs bg-light-1 text-dark-2 rounded-full hover:bg-primary/10 hover:text-primary transition-colors">过去30天</button>
+            </div>
+          </div>
+          <div class="h-80">
+            <canvas id="requestTrendChart"></canvas>
+          </div>
+        </div>
+        
+        <!-- 趋势图：状态码堆叠 & Top N 路由/上游 -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          <div class="bg-white rounded-xl p-5 card-shadow">
+            <div class="flex justify-between items-center mb-6">
+              <h3 class="font-semibold text-lg">状态码分布趋势</h3>
+              <div class="flex space-x-2">
+                <button class="px-3 py-1 text-xs bg-primary/10 text-primary rounded-full">堆叠视图</button>
+                <button class="px-3 py-1 text-xs bg-light-1 text-dark-2 rounded-full hover:bg-primary/10 hover:text-primary transition-colors">百分比视图</button>
+              </div>
+            </div>
+            <div class="h-72">
+              <canvas id="statusCodeChart"></canvas>
+            </div>
+          </div>
+          
+          <div class="bg-white rounded-xl p-5 card-shadow">
+            <div class="flex justify-between items-center mb-6">
+              <h3 class="font-semibold text-lg">Top N 路由流量</h3>
+              <div class="flex space-x-2">
+                <div class="relative">
+                  <select class="pl-3 pr-8 py-1.5 border border-light-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary appearance-none bg-white">
+                    <option>Top 10</option>
+                    <option>Top 5</option>
+                    <option>Top 20</option>
+                  </select>
+                  <i class="fa fa-chevron-down absolute right-3 top-2.5 text-light-3 pointer-events-none text-xs"></i>
+                </div>
+                <button class="px-3 py-1.5 text-xs bg-light-1 text-dark-2 rounded-lg hover:bg-primary/10 hover:text-primary transition-colors">
+                  按错误率排序
+                </button>
+              </div>
+            </div>
+            <div class="h-72">
+              <canvas id="topRoutesChart"></canvas>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 按小时热力图 -->
+        <div class="bg-white rounded-xl p-5 card-shadow mb-6">
+          <div class="flex justify-between items-center mb-6">
+            <h3 class="font-semibold text-lg">请求量按小时热力图</h3>
+            <div class="flex space-x-2">
+              <button class="px-3 py-1 text-xs bg-primary/10 text-primary rounded-full">请求量</button>
+              <button class="px-3 py-1 text-xs bg-light-1 text-dark-2 rounded-full hover:bg-primary/10 hover:text-primary transition-colors">错误率</button>
+              <button class="px-3 py-1 text-xs bg-light-1 text-dark-2 rounded-full hover:bg-primary/10 hover:text-primary transition-colors">平均延迟</button>
+            </div>
+          </div>
+          <div class="overflow-x-auto">
+            <div class="min-w-[800px]">
+              <div class="flex mb-2">
+                <div class="w-12 text-center text-sm text-light-3">时段</div>
+                <div class="flex-1 grid grid-cols-7 gap-1">
+                  <div class="text-center text-sm text-light-3">周一</div>
+                  <div class="text-center text-sm text-light-3">周二</div>
+                  <div class="text-center text-sm text-light-3">周三</div>
+                  <div class="text-center text-sm text-light-3">周四</div>
+                  <div class="text-center text-sm text-light-3">周五</div>
+                  <div class="text-center text-sm text-light-3">周六</div>
+                  <div class="text-center text-sm text-light-3">周日</div>
+                </div>
+              </div>
+              
+              <!-- 热力图数据 - 24小时 x 7天 -->
+              <div id="heatmapContainer">
+                <!-- 这里通过JS动态生成热力图数据 -->
+              </div>
+            </div>
+          </div>
+          
+          <!-- 热力图颜色图例 -->
+          <div class="mt-4 flex items-center">
+            <span class="text-xs text-light-3 mr-2">流量强度:</span>
+            <div class="flex h-4 flex-1 max-w-xs">
+              <div class="flex-1 bg-blue-50"></div>
+              <div class="flex-1 bg-blue-100"></div>
+              <div class="flex-1 bg-blue-200"></div>
+              <div class="flex-1 bg-blue-300"></div>
+              <div class="flex-1 bg-blue-400"></div>
+              <div class="flex-1 bg-blue-500"></div>
+              <div class="flex-1 bg-blue-600"></div>
+              <div class="flex-1 bg-blue-700"></div>
+              <div class="flex-1 bg-blue-800"></div>
+            </div>
+            <span class="text-xs text-light-3 ml-2">低 <-> 高</span>
+          </div>
+        </div>
+        
+        <!-- 热点表：高流量/高错误路由 -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          <div class="bg-white rounded-xl p-5 card-shadow">
+            <div class="flex justify-between items-center mb-6">
+              <h3 class="font-semibold text-lg">高流量路由 (近5分钟)</h3>
+              <button class="text-primary hover:text-primary/80 text-sm flex items-center">
+                <i class="fa fa-refresh mr-1"></i>
+                <span>刷新</span>
+              </button>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full">
+                <thead>
+                  <tr class="bg-gray-50">
+                    <th class="px-4 py-3 text-left text-xs font-medium text-light-3 uppercase tracking-wider">路由路径</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-light-3 uppercase tracking-wider">请求量</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-light-3 uppercase tracking-wider">QPS</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-light-3 uppercase tracking-wider">平均延迟</th>
+                    <th class="px-4 py-3 text-right text-xs font-medium text-light-3 uppercase tracking-wider">操作</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-light-2">
+                  <tr class="hover:bg-gray-50 transition-colors cursor-pointer">
+                    <td class="px-4 py-3 text-sm font-medium">/v1/chat/completions</td>
+                    <td class="px-4 py-3 text-sm">24,521</td>
+                    <td class="px-4 py-3 text-sm">82</td>
+                    <td class="px-4 py-3 text-sm">210ms</td>
+                    <td class="px-4 py-3 text-right text-sm">
+                      <button class="text-primary hover:text-primary/80">查看规则</button>
+                    </td>
+                  </tr>
+                  <tr class="hover:bg-gray-50 transition-colors cursor-pointer">
+                    <td class="px-4 py-3 text-sm font-medium">/v1/models</td>
+                    <td class="px-4 py-3 text-sm">18,342</td>
+                    <td class="px-4 py-3 text-sm">61</td>
+                    <td class="px-4 py-3 text-sm">45ms</td>
+                    <td class="px-4 py-3 text-right text-sm">
+                      <button class="text-primary hover:text-primary/80">查看规则</button>
+                    </td>
+                  </tr>
+                  <tr class="hover:bg-gray-50 transition-colors cursor-pointer">
+                    <td class="px-4 py-3 text-sm font-medium">/v1/embeddings</td>
+                    <td class="px-4 py-3 text-sm">12,784</td>
+                    <td class="px-4 py-3 text-sm">43</td>
+                    <td class="px-4 py-3 text-sm">320ms</td>
+                    <td class="px-4 py-3 text-right text-sm">
+                      <button class="text-primary hover:text-primary/80">查看规则</button>
+                    </td>
+                  </tr>
+                  <tr class="hover:bg-gray-50 transition-colors cursor-pointer">
+                    <td class="px-4 py-3 text-sm font-medium">/v1/completions</td>
+                    <td class="px-4 py-3 text-sm">9,521</td>
+                    <td class="px-4 py-3 text-sm">32</td>
+                    <td class="px-4 py-3 text-sm">185ms</td>
+                    <td class="px-4 py-3 text-right text-sm">
+                      <button class="text-primary hover:text-primary/80">查看规则</button>
+                    </td>
+                  </tr>
+                  <tr class="hover:bg-gray-50 transition-colors cursor-pointer">
+                    <td class="px-4 py-3 text-sm font-medium">/v1/moderations</td>
+                    <td class="px-4 py-3 text-sm">7,842</td>
+                    <td class="px-4 py-3 text-sm">26</td>
+                    <td class="px-4 py-3 text-sm">65ms</td>
+                    <td class="px-4 py-3 text-right text-sm">
+                      <button class="text-primary hover:text-primary/80">查看规则</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          
+          <div class="bg-white rounded-xl p-5 card-shadow">
+            <div class="flex justify-between items-center mb-6">
+              <h3 class="font-semibold text-lg">高错误路由 (近5分钟)</h3>
+              <button class="text-primary hover:text-primary/80 text-sm flex items-center">
+                <i class="fa fa-refresh mr-1"></i>
+                <span>刷新</span>
+              </button>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full">
+                <thead>
+                  <tr class="bg-gray-50">
+                    <th class="px-4 py-3 text-left text-xs font-medium text-light-3 uppercase tracking-wider">路由路径</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-light-3 uppercase tracking-wider">错误率</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-light-3 uppercase tracking-wider">主要错误</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-light-3 uppercase tracking-wider">受影响用户</th>
+                    <th class="px-4 py-3 text-right text-xs font-medium text-light-3 uppercase tracking-wider">操作</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-light-2">
+                  <tr class="hover:bg-gray-50 transition-colors cursor-pointer">
+                    <td class="px-4 py-3 text-sm font-medium">/v1/fine-tunes</td>
+                    <td class="px-4 py-3 text-sm text-danger">3.2%</td>
+                    <td class="px-4 py-3 text-sm">500, 504</td>
+                    <td class="px-4 py-3 text-sm">142</td>
+                    <td class="px-4 py-3 text-right text-sm">
+                      <button class="text-primary hover:text-primary/80">查看规则</button>
+                    </td>
+                  </tr>
+                  <tr class="hover:bg-gray-50 transition-colors cursor-pointer">
+                    <td class="px-4 py-3 text-sm font-medium">/v1/edits</td>
+                    <td class="px-4 py-3 text-sm text-danger">2.1%</td>
+                    <td class="px-4 py-3 text-sm">429, 503</td>
+                    <td class="px-4 py-3 text-sm">87</td>
+                    <td class="px-4 py-3 text-right text-sm">
+                      <button class="text-primary hover:text-primary/80">查看规则</button>
+                    </td>
+                  </tr>
+                  <tr class="hover:bg-gray-50 transition-colors cursor-pointer">
+                    <td class="px-4 py-3 text-sm font-medium">/v1/chat/completions</td>
+                    <td class="px-4 py-3 text-sm text-warning">1.5%</td>
+                    <td class="px-4 py-3 text-sm">502</td>
+                    <td class="px-4 py-3 text-sm">256</td>
+                    <td class="px-4 py-3 text-right text-sm">
+                      <button class="text-primary hover:text-primary/80">查看规则</button>
+                    </td>
+                  </tr>
+                  <tr class="hover:bg-gray-50 transition-colors cursor-pointer">
+                    <td class="px-4 py-3 text-sm font-medium">/v1/audio/transcriptions</td>
+                    <td class="px-4 py-3 text-sm text-warning">1.2%</td>
+                    <td class="px-4 py-3 text-sm">413, 500</td>
+                    <td class="px-4 py-3 text-sm">43</td>
+                    <td class="px-4 py-3 text-right text-sm">
+                      <button class="text-primary hover:text-primary/80">查看规则</button>
+                    </td>
+                  </tr>
+                  <tr class="hover:bg-gray-50 transition-colors cursor-pointer">
+                    <td class="px-4 py-3 text-sm font-medium">/v1/files</td>
+                    <td class="px-4 py-3 text-sm text-light-3">0.8%</td>
+                    <td class="px-4 py-3 text-sm">400</td>
+                    <td class="px-4 py-3 text-sm">29</td>
+                    <td class="px-4 py-3 text-right text-sm">
+                      <button class="text-primary hover:text-primary/80">查看规则</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 告警气泡 -->
+        <div class="bg-white rounded-xl card-shadow overflow-hidden">
+          <div class="p-5 border-b border-light-2 flex justify-between items-center">
+            <h3 class="font-semibold text-lg">系统告警</h3>
+            <div class="flex space-x-3">
+              <div class="relative">
+                <select class="pl-3 pr-8 py-1.5 border border-light-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary appearance-none bg-white">
+                  <option>全部级别</option>
+                  <option>紧急</option>
+                  <option>警告</option>
+                  <option>提示</option>
+                </select>
+                <i class="fa fa-chevron-down absolute right-3 top-2.5 text-light-3 pointer-events-none text-xs"></i>
+              </div>
+              <button class="text-primary hover:text-primary/80 text-sm flex items-center">
+                <i class="fa fa-bell-slash-o mr-1"></i>
+                <span>告警设置</span>
+              </button>
+            </div>
+          </div>
+          
+          <div class="overflow-x-auto">
+            <table class="w-full">
+              <thead>
+                <tr class="bg-gray-50">
+                  <th class="px-5 py-3 text-left text-xs font-medium text-light-3 uppercase tracking-wider">告警时间</th>
+                  <th class="px-5 py-3 text-left text-xs font-medium text-light-3 uppercase tracking-wider">告警级别</th>
+                  <th class="px-5 py-3 text-left text-xs font-medium text-light-3 uppercase tracking-wider">告警内容</th>
+                  <th class="px-5 py-3 text-left text-xs font-medium text-light-3 uppercase tracking-wider">涉及路由</th>
+                  <th class="px-5 py-3 text-left text-xs font-medium text-light-3 uppercase tracking-wider">状态</th>
+                  <th class="px-5 py-3 text-right text-xs font-medium text-light-3 uppercase tracking-wider">操作</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-light-2">
+                <!-- 告警1 -->
+                <tr class="hover:bg-gray-50 transition-colors">
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">2023-06-15 15:32:45</td>
+                  <td class="px-5 py-4 whitespace-nowrap">
+                    <span class="policy-badge bg-danger/20 text-danger">紧急</span>
+                  </td>
+                  <td class="px-5 py-4 text-sm">
+                    <div class="max-w-md">
+                      路由 /v1/chat/completions 5xx错误率突增，当前错误率 1.5%，超过阈值 1.0%
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">/v1/chat/completions</td>
+                  <td class="px-5 py-4 whitespace-nowrap">
+                    <div class="flex items-center">
+                      <span class="w-2 h-2 rounded-full bg-warning mr-2"></span>
+                      <span class="text-sm text-warning">处理中</span>
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <button class="text-primary hover:text-primary/80 mr-3">
+                      <i class="fa fa-eye mr-1"></i>详情
+                    </button>
+                    <button class="text-dark-2 hover:text-success">
+                      <i class="fa fa-check mr-1"></i>标记已处理
+                    </button>
+                  </td>
+                </tr>
+                
+                <!-- 告警2 -->
+                <tr class="hover:bg-gray-50 transition-colors">
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">2023-06-15 10:15:22</td>
+                  <td class="px-5 py-4 whitespace-nowrap">
+                    <span class="policy-badge bg-warning/20 text-warning">警告</span>
+                  </td>
+                  <td class="px-5 py-4 text-sm">
+                    <div class="max-w-md">
+                      路由 /v1/fine-tunes 平均延迟 680ms，超过P95阈值 500ms
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">/v1/fine-tunes</td>
+                  <td class="px-5 py-4 whitespace-nowrap">
+                    <div class="flex items-center">
+                      <span class="w-2 h-2 rounded-full bg-success mr-2"></span>
+                      <span class="text-sm text-success">已处理</span>
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <button class="text-primary hover:text-primary/80 mr-3">
+                      <i class="fa fa-eye mr-1"></i>详情
+                    </button>
+                    <button class="text-dark-2 hover:text-success">
+                      <i class="fa fa-check mr-1"></i>标记已处理
+                    </button>
+                  </td>
+                </tr>
+                
+                <!-- 告警3 -->
+                <tr class="hover:bg-gray-50 transition-colors">
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">2023-06-15 08:42:15</td>
+                  <td class="px-5 py-4 whitespace-nowrap">
+                    <span class="policy-badge bg-warning/20 text-warning">警告</span>
+                  </td>
+                  <td class="px-5 py-4 text-sm">
+                    <div class="max-w-md">
+                      限流次数突增，5分钟内触发 320 次限流，较基线增长 200%
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">多个路由</td>
+                  <td class="px-5 py-4 whitespace-nowrap">
+                    <div class="flex items-center">
+                      <span class="w-2 h-2 rounded-full bg-success mr-2"></span>
+                      <span class="text-sm text-success">已处理</span>
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <button class="text-primary hover:text-primary/80 mr-3">
+                      <i class="fa fa-eye mr-1"></i>详情
+                    </button>
+                    <button class="text-dark-2 hover:text-success">
+                      <i class="fa fa-check mr-1"></i>标记已处理
+                    </button>
+                  </td>
+                </tr>
+                
+                <!-- 告警4 -->
+                <tr class="hover:bg-gray-50 transition-colors">
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">2023-06-14 23:18:57</td>
+                  <td class="px-5 py-4 whitespace-nowrap">
+                    <span class="policy-badge bg-primary/20 text-primary">提示</span>
+                  </td>
+                  <td class="px-5 py-4 text-sm">
+                    <div class="max-w-md">
+                      缓存命中率下降至 62%，低于最佳实践值 70%
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap text-sm">全局</td>
+                  <td class="px-5 py-4 whitespace-nowrap">
+                    <div class="flex items-center">
+                      <span class="w-2 h-2 rounded-full bg-light-3 mr-2"></span>
+                      <span class="text-sm text-light-3">未处理</span>
+                    </div>
+                  </td>
+                  <td class="px-5 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <button class="text-primary hover:text-primary/80 mr-3">
+                      <i class="fa fa-eye mr-1"></i>详情
+                    </button>
+                    <button class="text-dark-2 hover:text-success">
+                      <i class="fa fa-check mr-1"></i>标记已处理
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          
+          <div class="px-5 py-4 border-t border-light-2 flex justify-between items-center">
+            <p class="text-sm text-light-3">显示 1 至 4 条，共 24 条</p>
+            <div class="flex space-x-1">
+              <button class="w-8 h-8 flex items-center justify-center rounded border border-light-2 text-light-3 hover:border-primary hover:text-primary transition-colors">
+                <i class="fa fa-angle-left"></i>
+              </button>
+              <button class="w-8 h-8 flex items-center justify-center rounded bg-primary text-white">1</button>
+              <button class="w-8 h-8 flex items-center justify-center rounded border border-light-2 hover:border-primary hover:text-primary transition-colors">2</button>
+              <button class="w-8 h-8 flex items-center justify-center rounded border border-light-2 hover:border-primary hover:text-primary transition-colors">3</button>
+              <button class="w-8 h-8 flex items-center justify-center rounded border border-light-2 hover:border-primary hover:text-primary transition-colors">4</button>
+              <button class="w-8 h-8 flex items-center justify-center rounded border border-light-2 hover:border-primary hover:text-primary transition-colors">5</button>
+              <button class="w-8 h-8 flex items-center justify-center rounded border border-light-2 hover:border-primary hover:text-primary transition-colors">
+                <i class="fa fa-angle-right"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    // 生成热力图数据
+    function generateHeatmap() {
+      const container = document.getElementById('heatmapContainer');
+      container.innerHTML = '';
+      
+      // 生成24小时数据
+      for (let hour = 0; hour < 24; hour++) {
+        const row = document.createElement('div');
+        row.className = 'flex mb-1';
+        
+        // 小时标签
+        const hourLabel = document.createElement('div');
+        hourLabel.className = 'w-12 flex items-center justify-center text-sm text-light-3';
+        hourLabel.textContent = `${hour}:00`;
+        row.appendChild(hourLabel);
+        
+        // 7天数据
+        const daysContainer = document.createElement('div');
+        daysContainer.className = 'flex-1 grid grid-cols-7 gap-1';
+        row.appendChild(daysContainer);
+        
+        // 为每天生成随机数据点
+        for (let day = 0; day < 7; day++) {
+          // 生成0-100的随机值，周末和晚上的值更高
+          let value = Math.random() * 100;
+          
+          // 周末流量更高
+          if (day === 5 || day === 6) {
+            value += 30;
+          }
+          
+          // 晚上8点到11点流量更高
+          if (hour >= 20 && hour <= 23) {
+            value += 40;
+          }
+          
+          // 限制最大值为100
+          value = Math.min(value, 100);
+          
+          // 计算颜色深度 (1-9)
+          const depth = Math.ceil(value / 11);
+          
+          const cell = document.createElement('div');
+          cell.className = `heatmap-cell rounded-sm flex items-center justify-center text-white text-xs font-medium bg-blue-${depth}00`;
+          cell.title = `${hour}:00, 周${day+1}: ${Math.round(value)} 次请求`;
+          
+          // 只显示较高值的标签
+          if (value > 50) {
+            cell.textContent = Math.round(value);
+          }
+          
+          daysContainer.appendChild(cell);
+        }
+        
+        container.appendChild(row);
+      }
+    }
+    
+    // 初始化请求趋势图
+    function initRequestTrendChart() {
+      const ctx = document.getElementById('requestTrendChart').getContext('2d');
+      
+      // 生成过去24小时的时间标签
+      const hours = [];
+      const now = new Date();
+      for (let i = 23; i >= 0; i--) {
+        const hour = new Date(now.getTime() - i * 60 * 60 * 1000);
+        hours.push(hour.getHours() + ':00');
+      }
+      
+      // 生成模拟数据
+      const requestData = hours.map(() => Math.floor(Math.random() * 1000) + 500);
+      const successRateData = hours.map(() => 98 + Math.random() * 1.9);
+      const latencyData = hours.map(() => Math.floor(Math.random() * 100) + 150);
+      
+      new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: hours,
+          datasets: [
+            {
+              label: '请求量',
+              data: requestData,
+              borderColor: '#165DFF',
+              backgroundColor: 'rgba(22, 93, 255, 0.1)',
+              borderWidth: 2,
+              fill: true,
+              tension: 0.4,
+              yAxisID: 'y'
+            },
+            {
+              label: '成功率 (%)',
+              data: successRateData,
+              borderColor: '#00B42A',
+              backgroundColor: 'transparent',
+              borderWidth: 2,
+              fill: false,
+              tension: 0.4,
+              yAxisID: 'y1'
+            },
+            {
+              label: '平均延迟 (ms)',
+              data: latencyData,
+              borderColor: '#FF7D00',
+              backgroundColor: 'transparent',
+              borderWidth: 2,
+              fill: false,
+              tension: 0.4,
+              yAxisID: 'y2'
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: {
+            mode: 'index',
+            intersect: false,
+          },
+          scales: {
+            y: {
+              type: 'linear',
+              display: true,
+              position: 'left',
+              title: {
+                display: true,
+                text: '请求量'
+              }
+            },
+            y1: {
+              type: 'linear',
+              display: true,
+              position: 'right',
+              title: {
+                display: true,
+                text: '成功率 (%)'
+              },
+              min: 95,
+              max: 100,
+              grid: {
+                drawOnChartArea: false
+              }
+            },
+            y2: {
+              type: 'linear',
+              display: false,
+              position: 'right',
+              title: {
+                display: true,
+                text: '延迟 (ms)'
+              },
+              grid: {
+                drawOnChartArea: false
+              }
+            }
+          }
+        }
+      });
+    }
+    
+    // 初始化状态码分布图表
+    function initStatusCodeChart() {
+      const ctx = document.getElementById('statusCodeChart').getContext('2d');
+      
+      // 生成过去24小时的时间标签
+      const hours = [];
+      const now = new Date();
+      for (let i = 23; i >= 0; i -= 2) {
+        const hour = new Date(now.getTime() - i * 60 * 60 * 1000);
+        hours.push(hour.getHours() + ':00');
+      }
+      
+      // 生成模拟数据
+      const data2xx = hours.map(() => Math.floor(Math.random() * 1000) + 500);
+      const data3xx = hours.map(() => Math.floor(Math.random() * 100));
+      const data4xx = hours.map(() => Math.floor(Math.random() * 50) + 10);
+      const data5xx = hours.map(() => Math.floor(Math.random() * 30) + 5);
+      
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: hours,
+          datasets: [
+            {
+              label: '2xx',
+              data: data2xx,
+              backgroundColor: '#00B42A',
+            },
+            {
+              label: '3xx',
+              data: data3xx,
+              backgroundColor: '#165DFF',
+            },
+            {
+              label: '4xx',
+              data: data4xx,
+              backgroundColor: '#FF7D00',
+            },
+            {
+              label: '5xx',
+              data: data5xx,
+              backgroundColor: '#F53F3F',
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: {
+              stacked: true,
+            },
+            y: {
+              stacked: true,
+              title: {
+                display: true,
+                text: '请求量'
+              }
+            }
+          }
+        }
+      });
+    }
+    
+    // 初始化Top路由图表
+    function initTopRoutesChart() {
+      const ctx = document.getElementById('topRoutesChart').getContext('2d');
+      
+      // 路由数据
+      const routes = [
+        '/v1/chat/completions',
+        '/v1/models',
+        '/v1/embeddings',
+        '/v1/completions',
+        '/v1/moderations',
+        '/v1/fine-tunes',
+        '/v1/edits',
+        '/v1/audio/transcriptions',
+        '/v1/files',
+        '/v1/images/generations'
+      ];
+      
+      // 生成模拟数据
+      const data = routes.map(() => Math.floor(Math.random() * 15000) + 5000);
+      
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: routes,
+          datasets: [{
+            label: '请求量',
+            data: data,
+            backgroundColor: '#165DFF',
+            borderRadius: 4
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          indexAxis: 'y',
+          scales: {
+            x: {
+              title: {
+                display: true,
+                text: '请求量'
+              }
+            }
+          }
+        }
+      });
+    }
+    
+    // 页面加载完成后初始化图表
+    // 页面加载完成后初始化图表
+    document.addEventListener('DOMContentLoaded', function() {
+      generateHeatmap();
+      initRequestTrendChart();
+      initStatusCodeChart();
+      initTopRoutesChart();
+      
+      // 刷新按钮事件
+      document.getElementById('refreshDataBtn').addEventListener('click', function() {
+        // 模拟数据刷新
+        this.innerHTML = '<i class="fa fa-spinner fa-spin mr-2"></i><span>刷新中...</span>';
+        
+        setTimeout(() => {
+          generateHeatmap();
+          initRequestTrendChart();
+          initStatusCodeChart();
+          initTopRoutesChart();
+          this.innerHTML = '<i class="fa fa-refresh mr-2"></i><span>刷新数据</span>';
+        }, 800);
+      });
+    });
+  </script>
+</body>
+</html>

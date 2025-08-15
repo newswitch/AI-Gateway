@@ -133,6 +133,12 @@ async def health_check():
         "timestamp": datetime.now().isoformat()
     }
 
+# 兼容前端：系统状态
+@app.get("/api/v1/status")
+async def system_status():
+    """兼容前端期望的状态接口，复用 /health 输出"""
+    return await health_check()
+
 # 缓存统计
 @app.get("/stats")
 async def cache_stats():

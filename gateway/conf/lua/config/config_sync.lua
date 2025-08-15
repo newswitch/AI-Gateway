@@ -4,9 +4,11 @@ local _M = {}
 local cjson = require "cjson"
 local redis = require "resty.redis"
 local http = require "resty.http"
+local svc = require "utils.service_config"
 
 -- 配置中心API基础URL
-local CONFIG_CENTER_BASE_URL = "http://config-center:8000"
+-- 在 K8s 中使用 Service 名称
+local CONFIG_CENTER_BASE_URL = svc.get_config_center_base_url()
 
 -- 同步所有配置
 function _M.sync_all_configs()
@@ -55,7 +57,9 @@ function _M.sync_namespaces()
         if data and data.data then
             -- 缓存到Redis
             local red = redis:new()
-            local ok, err = red:connect("redis", 6379)
+            -- 在 K8s 中使用 Redis Service 名称
+            local rc = svc.get_redis_config()
+            local ok, err = red:connect(rc.host, rc.port or 6379)
             if ok then
                 red:set("namespaces", cjson.encode(data.data))
                 red:expire("namespaces", 300) -- 5分钟过期
@@ -87,7 +91,7 @@ function _M.sync_rules()
         if data and data.data then
             -- 缓存到Redis
             local red = redis:new()
-            local ok, err = red:connect("redis", 6379)
+            local ok, err = red:connect("ai-gateway-redis.ai-gateway.svc.cluster.local", 6379)
             if ok then
                 red:set("rules", cjson.encode(data.data))
                 red:expire("rules", 300) -- 5分钟过期
@@ -119,7 +123,7 @@ function _M.sync_matchers()
         if data and data.data then
             -- 缓存到Redis
             local red = redis:new()
-            local ok, err = red:connect("redis", 6379)
+            local ok, err = red:connect("ai-gateway-redis.ai-gateway.svc.cluster.local", 6379)
             if ok then
                 red:set("matchers", cjson.encode(data.data))
                 red:expire("matchers", 300) -- 5分钟过期
@@ -151,7 +155,7 @@ function _M.sync_upstream_servers()
         if data and data.data then
             -- 缓存到Redis
             local red = redis:new()
-            local ok, err = red:connect("redis", 6379)
+            local ok, err = red:connect("ai-gateway-redis.ai-gateway.svc.cluster.local", 6379)
             if ok then
                 red:set("upstream_servers", cjson.encode(data.data))
                 red:expire("upstream_servers", 300) -- 5分钟过期
@@ -183,7 +187,7 @@ function _M.sync_proxy_rules()
         if data and data.data then
             -- 缓存到Redis
             local red = redis:new()
-            local ok, err = red:connect("redis", 6379)
+            local ok, err = red:connect("ai-gateway-redis.ai-gateway.svc.cluster.local", 6379)
             if ok then
                 red:set("proxy_rules", cjson.encode(data.data))
                 red:expire("proxy_rules", 300) -- 5分钟过期

@@ -6,6 +6,7 @@ local _M = {}
 local cjson = require "cjson"
 local redis = require "resty.redis"
 local http = require "resty.http"
+local svc = require "utils.service_config"
 
 -- 缓存配置
 local CACHE_TTL = 300 -- 5分钟缓存
@@ -21,7 +22,8 @@ local function get_redis_conn()
     local red = redis:new()
     red:set_timeout(1000)
     
-    local ok, err = red:connect("redis", 6379)
+    -- 在 K8s 中使用 Redis Service FQDN
+    local ok, err = red:connect("ai-gateway-redis.ai-gateway.svc.cluster.local", 6379)
     if not ok then
         ngx.log(ngx.ERR, "Failed to connect to Redis: ", err)
         return nil
@@ -59,7 +61,9 @@ local function get_config_from_api(config_key)
     local httpc = http.new()
     httpc:set_timeout(2000)
     
-    local url = string.format("http://config-center:8000/api/v1/config/%s", config_key)
+    -- 在 K8s 中使用 Service 名称
+    local base = svc.get_config_center_base_url()
+    local url = string.format("%s/api/v1/config/%s", base, config_key)
     local res, err = httpc:request_uri(url, {
         method = "GET",
         headers = {

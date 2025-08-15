@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
@@ -13,6 +17,15 @@
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
 }
+
+/* V2 复刻 - 统一徽标/标签样式 */
+.policy-badge { @apply inline-flex items-center rounded px-2 py-0.5 text-xs font-medium; }
+.token-badge { @apply inline-flex items-center rounded px-2 py-0.5 text-xs font-medium; }
+
+/* V2 复刻 - 轻量 chip 按钮组 */
+.chip-group { @apply flex flex-wrap gap-2; }
+.chip { @apply px-3 py-1 rounded-full text-sm bg-white border border-gray-200 text-gray-700 hover:border-primary hover:text-primary cursor-pointer; }
+.chip-active { @apply bg-primary text-white border-primary; }
 
 body {
   margin: 0;

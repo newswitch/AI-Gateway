@@ -11,6 +11,7 @@ import UpstreamServerList from './pages/UpstreamServerList'
 import ProxyRuleList from './pages/ProxyRuleList'
 import NginxConfigList from './pages/NginxConfigList'
 import RouteTest from './pages/RouteTest'
+ 
 
 
 const { Content } = Layout
@@ -31,6 +32,7 @@ function App() {
           <Route path="/proxy-rules" element={<ProxyRuleList />} />
           <Route path="/nginx-configs" element={<NginxConfigList />} />
           <Route path="/route-test" element={<RouteTest />} />
+          
         </Routes>
         </Content>
       </Layout>

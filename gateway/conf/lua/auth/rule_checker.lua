@@ -6,6 +6,7 @@ local _M = {}
 local cjson = require "cjson"
 local config_cache = require "config.config_cache"
 local rate_limiter = require "auth.rate_limiter"
+local svc = require "utils.service_config"
 
 -- 规则类型定义
 local rule_types = {
@@ -53,7 +54,8 @@ local function get_precise_tokens(text, model_name)
     -- 使用Redis缓存来避免重复计算
     local redis = require "resty.redis"
     local red = redis:new()
-    local ok, err = red:connect("redis", 6379)
+    local rc = svc.get_redis_config()
+    local ok, err = red:connect(rc.host, rc.port or 6379)
     
     if ok then
         -- 构建缓存键
@@ -114,7 +116,8 @@ local function get_precise_tokens(text, model_name)
     -- 缓存结果（5分钟过期）
     if ok then
         local red = redis:new()
-        local ok, err = red:connect("redis", 6379)
+        local rc = svc.get_redis_config()
+        local ok, err = red:connect(rc.host, rc.port or 6379)
         if ok then
             local cache_key = string.format("token_cache:%s:%s", model_name or "gpt-3.5-turbo", ngx.md5(text))
             red:setex(cache_key, TOKEN_CACHE_TTL, tostring(token_count))  -- 使用配置的缓存时间

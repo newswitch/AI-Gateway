@@ -7,14 +7,33 @@ local redis = require "resty.redis"
 
 -- 获取Redis配置
 local function get_redis_config()
-    -- 从环境变量获取配置
-    return {
+    -- 默认配置
+    local config = {
         host = os.getenv("REDIS_HOST") or "redis",
         port = os.getenv("REDIS_PORT") or "6379",
         db = os.getenv("REDIS_DB") or "0",
         timeout = tonumber(os.getenv("REDIS_TIMEOUT")) or 1000,
         pool_size = tonumber(os.getenv("REDIS_POOL_SIZE")) or 100
     }
+
+    -- 优先支持 REDIS_URL（例如 redis://ai-gateway-redis:6379/0）
+    local redis_url = os.getenv("REDIS_URL")
+    if redis_url and #redis_url > 0 then
+        -- 简单解析，不支持用户名密码
+        -- 形如: redis://host:port/db
+        local host, port, db = string.match(redis_url, "redis://([^:/]+):?(%d*)/?(%d*)")
+        if host and #host > 0 then
+            config.host = host
+        end
+        if port and #port > 0 then
+            config.port = port
+        end
+        if db and #db > 0 then
+            config.db = db
+        end
+    end
+
+    return config
 end
 
 -- 连接池配置

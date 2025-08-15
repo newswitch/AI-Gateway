@@ -9,12 +9,7 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime
 from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, Text, DateTime, Boolean, select, insert, update
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.orm import declarative_base
-
 logger = logging.getLogger(__name__)
-
-# 创建异步引擎
-Base = declarative_base()
 
 class DatabaseManager:
     """数据库管理器 - MySQL操作"""
@@ -1250,6 +1245,41 @@ class DatabaseManager:
                         except json.JSONDecodeError:
                             pass
                     
+                    configs.append({
+                        'config_id': row.config_id,
+                        'config_type': row.config_type,
+                        'config_name': row.config_name,
+                        'config_value': config_value,
+                        'description': row.description,
+                        'status': row.status,
+                        'create_time': row.create_time.isoformat(),
+                        'update_time': row.update_time.isoformat()
+                    })
+                return configs
+        except Exception as e:
+            logger.error(f"获取nginx配置失败: {str(e)}")
+            return []
+
+    async def get_all_nginx_configs(self) -> List[Dict[str, Any]]:
+        """获取所有nginx配置（默认仅返回启用状态）"""
+        try:
+            async with self.get_session() as session:
+                result = await session.execute(
+                    select(self.nginx_config)
+                    .where(self.nginx_config.c.status == 1)
+                    .order_by(self.nginx_config.c.config_type.asc(), self.nginx_config.c.config_id.asc())
+                )
+                rows = result.fetchall()
+
+                configs = []
+                for row in rows:
+                    config_value = None
+                    if row.config_value:
+                        try:
+                            config_value = json.loads(row.config_value)
+                        except json.JSONDecodeError:
+                            pass
+
                     configs.append({
                         'config_id': row.config_id,
                         'config_type': row.config_type,

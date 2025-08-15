@@ -3,6 +3,7 @@ local redis = require "resty.redis"
 local mysql = require "resty.mysql"
 
 local _M = {}
+local svc = require "utils.service_config"
 
 -- 缓存配置
 local CACHE_TTL = 300 -- 5分钟缓存
@@ -13,7 +14,8 @@ local function get_redis_conn()
     local red = redis:new()
     red:set_timeout(1000)
     
-    local ok, err = red:connect("redis", 6379)
+    local rc = svc.get_redis_config()
+    local ok, err = red:connect(rc.host, rc.port or 6379)
     if not ok then
         ngx.log(ngx.ERR, "Failed to connect to Redis: ", err)
         return nil
