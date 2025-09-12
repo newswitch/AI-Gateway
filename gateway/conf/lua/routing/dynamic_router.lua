@@ -136,7 +136,7 @@ local function proxy_to_upstream(server, request_info)
 end
 
 -- 主要处理函数
-function _M.handle_request()
+function _M.route_request()
     local request_info = get_request_info()
     
     -- 跳过内部路径

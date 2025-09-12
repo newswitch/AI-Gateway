@@ -14,7 +14,7 @@ end
 
 -- Redis 配置
 function _M.get_redis_config()
-    local default_host = "ai-gateway-redis.ai-gateway.svc.cluster.local"
+    local default_host = "redis"
     local default_port = 6379
     local default_db = 0
 
@@ -34,13 +34,13 @@ function _M.get_config_center_base_url()
     if url and url ~= "" then
         return url
     end
-    return "http://ai-gateway-config-center.ai-gateway.svc.cluster.local:8000"
+    return "http://config-center:8000"
 end
 
 -- MySQL 配置（供需要直连 MySQL 的模块使用）
 function _M.get_mysql_config()
     return {
-        host = os.getenv("MYSQL_HOST") or "ai-gateway-mysql.ai-gateway.svc.cluster.local",
+        host = os.getenv("MYSQL_HOST") or "mysql",
         port = tonumber(os.getenv("MYSQL_PORT") or "3306"),
         database = os.getenv("MYSQL_DATABASE") or "ai_gateway_config",
         user = os.getenv("MYSQL_USER") or "ai_gateway",
@@ -50,7 +50,7 @@ end
 
 -- Token 服务 URL（返回 /calculate 末尾路径）
 function _M.get_token_service_url()
-    local token_service_url = os.getenv("TOKEN_SERVICE_URL") or "http://ai-gateway-token-service.ai-gateway.svc.cluster.local:8000"
+    local token_service_url = os.getenv("TOKEN_SERVICE_URL") or "http://token-service:8000"
     if string.find(token_service_url, "/calculate") then
         return token_service_url
     end

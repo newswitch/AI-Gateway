@@ -1,43 +1,64 @@
-import React from 'react'
-import { Routes, Route } from 'react-router-dom'
-import { Layout } from 'antd'
-import Header from './components/Header'
-import Sidebar from './components/Sidebar'
-import Dashboard from './pages/Dashboard'
-import MonitoringDashboard from './pages/MonitoringDashboard'
-import NamespaceList from './pages/NamespaceList'
-import RuleList from './pages/RuleList'
-import UpstreamServerList from './pages/UpstreamServerList'
-import ProxyRuleList from './pages/ProxyRuleList'
-import NginxConfigList from './pages/NginxConfigList'
-import RouteTest from './pages/RouteTest'
- 
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { Layout } from 'antd';
+import HeaderComponent from './components/Header';
+import Sidebar from './components/Sidebar';
+import Dashboard from './pages/Dashboard';
+import ModelRouting from './pages/ModelRouting';
+import NamespaceManagement from './pages/NamespaceManagement';
+import PolicyConfiguration from './pages/PolicyConfiguration';
+import UnifiedNginxConfig from './pages/UnifiedNginxConfig';
+import TrafficMonitoring from './pages/TrafficMonitoring';
+import AccessLogs from './pages/AccessLogs';
+import 'antd/dist/reset.css';
 
-
-const { Content } = Layout
+const { Sider, Content } = Layout;
 
 function App() {
+  console.log('App组件开始渲染...');
+  
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Sidebar />
-      <Layout>
-        <Header />
-        <Content style={{ margin: '0', background: '#f5f5f5' }}>
-                  <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/monitoring" element={<MonitoringDashboard />} />
-          <Route path="/namespaces" element={<NamespaceList />} />
-          <Route path="/rules" element={<RuleList />} />
-          <Route path="/upstream-servers" element={<UpstreamServerList />} />
-          <Route path="/proxy-rules" element={<ProxyRuleList />} />
-          <Route path="/nginx-configs" element={<NginxConfigList />} />
-          <Route path="/route-test" element={<RouteTest />} />
-          
-        </Routes>
-        </Content>
+    <Router>
+      <Layout style={{ minHeight: '100vh', width: '100%', overflow: 'hidden' }}>
+        <HeaderComponent />
+        <Layout style={{ marginTop: 80, width: '100%', overflow: 'hidden' }}>
+          <Sider
+            width={256}
+            style={{
+              background: '#fff',
+              borderRight: '1px solid #e5e6eb',
+              position: 'fixed',
+              height: 'calc(100vh - 80px)',
+              top: 80,
+              left: 0,
+              overflow: 'auto'
+            }}
+          >
+            <Sidebar />
+          </Sider>
+          <Content
+            style={{
+              marginLeft: 256,
+              background: '#f5f5f5',
+              minHeight: 'calc(100vh - 80px)',
+              width: 'calc(100vw - 256px)',
+              overflow: 'auto'
+            }}
+          >
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/model-routing" element={<ModelRouting />} />
+              <Route path="/namespace" element={<NamespaceManagement />} />
+              <Route path="/policy" element={<PolicyConfiguration />} />
+              <Route path="/unified-config" element={<UnifiedNginxConfig />} />
+              <Route path="/monitoring" element={<TrafficMonitoring />} />
+              <Route path="/logs" element={<AccessLogs />} />
+            </Routes>
+          </Content>
+        </Layout>
       </Layout>
-    </Layout>
-  )
+    </Router>
+  );
 }
 
-export default App 
+export default App;

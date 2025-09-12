@@ -27,7 +27,15 @@ class ConfigCache:
             'rules': 3600,          # 规则缓存1小时
             'upstream': 1800,       # 上游服务器缓存30分钟
             'proxy': 1800,          # 代理规则缓存30分钟
-            'nginx_config': 7200    # Nginx配置缓存2小时
+            'nginx_config': 7200,   # Nginx配置缓存2小时
+            'policies': 1800,       # 策略配置缓存30分钟
+            'traffic': 300,         # 流量监控缓存5分钟
+            'logs': 600,            # 访问日志缓存10分钟
+            'dashboard': 60,        # 仪表盘数据缓存1分钟
+            'locations': 1800,      # 路由规则缓存30分钟
+            'auth': 3600,           # 认证信息缓存1小时
+            'alerts': 300,          # 告警信息缓存5分钟
+            'stats': 300            # 统计数据缓存5分钟
         }
     
     async def connect(self):
@@ -985,4 +993,298 @@ class ConfigCache:
             
         except Exception as e:
             logger.error(f"获取并发时间序列失败: {str(e)}")
-            return [] 
+            return []
+
+    # ==================== 策略配置缓存 ====================
+    
+    async def set_policy(self, policy_id: int, policy_data: Dict, ttl: int = None):
+        """设置策略配置缓存"""
+        try:
+            cache_key = self._get_cache_key("policies", str(policy_id))
+            await self.redis_client.set(cache_key, json.dumps(policy_data), ex=ttl or self.cache_ttl['policies'])
+        except Exception as e:
+            logger.error(f"设置策略配置缓存失败: {str(e)}")
+    
+    async def get_policy(self, policy_id: int) -> Optional[Dict]:
+        """获取策略配置缓存"""
+        try:
+            cache_key = self._get_cache_key("policies", str(policy_id))
+            data = await self.redis_client.get(cache_key)
+            return json.loads(data) if data else None
+        except Exception as e:
+            logger.error(f"获取策略配置缓存失败: {str(e)}")
+            return None
+    
+    async def set_policies_list(self, policies: List[Dict], filters: Dict = None, ttl: int = None):
+        """设置策略列表缓存"""
+        try:
+            cache_key = self._get_list_cache_key("policies", filters)
+            await self.redis_client.set(cache_key, json.dumps(policies), ex=ttl or self.cache_ttl['policies'])
+        except Exception as e:
+            logger.error(f"设置策略列表缓存失败: {str(e)}")
+    
+    async def get_policies_list(self, filters: Dict = None) -> List[Dict]:
+        """获取策略列表缓存"""
+        try:
+            cache_key = self._get_list_cache_key("policies", filters)
+            data = await self.redis_client.get(cache_key)
+            return json.loads(data) if data else []
+        except Exception as e:
+            logger.error(f"获取策略列表缓存失败: {str(e)}")
+            return []
+    
+    async def delete_policy(self, policy_id: int):
+        """删除策略配置缓存"""
+        try:
+            cache_key = self._get_cache_key("policies", str(policy_id))
+            await self.redis_client.delete(cache_key)
+            # 清除相关列表缓存
+            await self.redis_client.delete(self._get_list_cache_key("policies"))
+        except Exception as e:
+            logger.error(f"删除策略配置缓存失败: {str(e)}")
+
+    # ==================== 流量监控缓存 ====================
+    
+    async def set_traffic_metrics(self, metrics: Dict, ttl: int = None):
+        """设置流量监控指标缓存"""
+        try:
+            cache_key = "traffic:metrics"
+            await self.redis_client.set(cache_key, json.dumps(metrics), ex=ttl or self.cache_ttl['traffic'])
+        except Exception as e:
+            logger.error(f"设置流量监控指标缓存失败: {str(e)}")
+    
+    async def get_traffic_metrics(self) -> Optional[Dict]:
+        """获取流量监控指标缓存"""
+        try:
+            cache_key = "traffic:metrics"
+            data = await self.redis_client.get(cache_key)
+            return json.loads(data) if data else None
+        except Exception as e:
+            logger.error(f"获取流量监控指标缓存失败: {str(e)}")
+            return None
+    
+    async def set_alerts(self, alerts: List[Dict], ttl: int = None):
+        """设置告警信息缓存"""
+        try:
+            cache_key = "traffic:alerts"
+            await self.redis_client.set(cache_key, json.dumps(alerts), ex=ttl or self.cache_ttl['alerts'])
+        except Exception as e:
+            logger.error(f"设置告警信息缓存失败: {str(e)}")
+    
+    async def get_alerts(self) -> List[Dict]:
+        """获取告警信息缓存"""
+        try:
+            cache_key = "traffic:alerts"
+            data = await self.redis_client.get(cache_key)
+            return json.loads(data) if data else []
+        except Exception as e:
+            logger.error(f"获取告警信息缓存失败: {str(e)}")
+            return []
+    
+    async def set_alert(self, alert_id: str, alert_data: Dict, ttl: int = None):
+        """设置单个告警缓存"""
+        try:
+            cache_key = f"traffic:alert:{alert_id}"
+            await self.redis_client.set(cache_key, json.dumps(alert_data), ex=ttl or self.cache_ttl['alerts'])
+        except Exception as e:
+            logger.error(f"设置告警缓存失败: {str(e)}")
+    
+    async def get_alert(self, alert_id: str) -> Optional[Dict]:
+        """获取单个告警缓存"""
+        try:
+            cache_key = f"traffic:alert:{alert_id}"
+            data = await self.redis_client.get(cache_key)
+            return json.loads(data) if data else None
+        except Exception as e:
+            logger.error(f"获取告警缓存失败: {str(e)}")
+            return None
+
+    # ==================== 访问日志缓存 ====================
+    
+    async def set_logs(self, logs: List[Dict], filters: Dict = None, ttl: int = None):
+        """设置访问日志缓存"""
+        try:
+            cache_key = self._get_list_cache_key("logs", filters)
+            await self.redis_client.set(cache_key, json.dumps(logs), ex=ttl or self.cache_ttl['logs'])
+        except Exception as e:
+            logger.error(f"设置访问日志缓存失败: {str(e)}")
+    
+    async def get_logs(self, filters: Dict = None) -> List[Dict]:
+        """获取访问日志缓存"""
+        try:
+            cache_key = self._get_list_cache_key("logs", filters)
+            data = await self.redis_client.get(cache_key)
+            return json.loads(data) if data else []
+        except Exception as e:
+            logger.error(f"获取访问日志缓存失败: {str(e)}")
+            return []
+    
+    async def set_log_stats(self, stats: Dict, ttl: int = None):
+        """设置日志统计缓存"""
+        try:
+            cache_key = "logs:stats"
+            await self.redis_client.set(cache_key, json.dumps(stats), ex=ttl or self.cache_ttl['stats'])
+        except Exception as e:
+            logger.error(f"设置日志统计缓存失败: {str(e)}")
+    
+    async def get_log_stats(self) -> Optional[Dict]:
+        """获取日志统计缓存"""
+        try:
+            cache_key = "logs:stats"
+            data = await self.redis_client.get(cache_key)
+            return json.loads(data) if data else None
+        except Exception as e:
+            logger.error(f"获取日志统计缓存失败: {str(e)}")
+            return None
+
+    # ==================== 仪表盘数据缓存 ====================
+    
+    async def set_dashboard_metrics(self, metrics: Dict, ttl: int = None):
+        """设置仪表盘指标缓存"""
+        try:
+            cache_key = "dashboard:metrics"
+            await self.redis_client.set(cache_key, json.dumps(metrics), ex=ttl or self.cache_ttl['dashboard'])
+        except Exception as e:
+            logger.error(f"设置仪表盘指标缓存失败: {str(e)}")
+    
+    async def get_dashboard_metrics(self) -> Optional[Dict]:
+        """获取仪表盘指标缓存"""
+        try:
+            cache_key = "dashboard:metrics"
+            data = await self.redis_client.get(cache_key)
+            return json.loads(data) if data else None
+        except Exception as e:
+            logger.error(f"获取仪表盘指标缓存失败: {str(e)}")
+            return None
+    
+    async def set_dashboard_realtime(self, realtime_data: Dict, ttl: int = None):
+        """设置仪表盘实时数据缓存"""
+        try:
+            cache_key = "dashboard:realtime"
+            await self.redis_client.set(cache_key, json.dumps(realtime_data), ex=ttl or self.cache_ttl['dashboard'])
+        except Exception as e:
+            logger.error(f"设置仪表盘实时数据缓存失败: {str(e)}")
+    
+    async def get_dashboard_realtime(self) -> Optional[Dict]:
+        """获取仪表盘实时数据缓存"""
+        try:
+            cache_key = "dashboard:realtime"
+            data = await self.redis_client.get(cache_key)
+            return json.loads(data) if data else None
+        except Exception as e:
+            logger.error(f"获取仪表盘实时数据缓存失败: {str(e)}")
+            return None
+
+    # ==================== 路由规则缓存 ====================
+    
+    async def set_location(self, location_id: int, location_data: Dict, ttl: int = None):
+        """设置路由规则缓存"""
+        try:
+            cache_key = self._get_cache_key("locations", str(location_id))
+            await self.redis_client.set(cache_key, json.dumps(location_data), ex=ttl or self.cache_ttl['locations'])
+        except Exception as e:
+            logger.error(f"设置路由规则缓存失败: {str(e)}")
+    
+    async def get_location(self, location_id: int) -> Optional[Dict]:
+        """获取路由规则缓存"""
+        try:
+            cache_key = self._get_cache_key("locations", str(location_id))
+            data = await self.redis_client.get(cache_key)
+            return json.loads(data) if data else None
+        except Exception as e:
+            logger.error(f"获取路由规则缓存失败: {str(e)}")
+            return None
+    
+    async def set_locations_list(self, locations: List[Dict], ttl: int = None):
+        """设置路由规则列表缓存"""
+        try:
+            cache_key = self._get_list_cache_key("locations")
+            await self.redis_client.set(cache_key, json.dumps(locations), ex=ttl or self.cache_ttl['locations'])
+        except Exception as e:
+            logger.error(f"设置路由规则列表缓存失败: {str(e)}")
+    
+    async def get_locations_list(self) -> List[Dict]:
+        """获取路由规则列表缓存"""
+        try:
+            cache_key = self._get_list_cache_key("locations")
+            data = await self.redis_client.get(cache_key)
+            return json.loads(data) if data else []
+        except Exception as e:
+            logger.error(f"获取路由规则列表缓存失败: {str(e)}")
+            return []
+    
+    async def delete_location(self, location_id: int):
+        """删除路由规则缓存"""
+        try:
+            cache_key = self._get_cache_key("locations", str(location_id))
+            await self.redis_client.delete(cache_key)
+            # 清除相关列表缓存
+            await self.redis_client.delete(self._get_list_cache_key("locations"))
+        except Exception as e:
+            logger.error(f"删除路由规则缓存失败: {str(e)}")
+
+    # ==================== 认证信息缓存 ====================
+    
+    async def set_auth_token(self, token: str, user_data: Dict, ttl: int = None):
+        """设置认证令牌缓存"""
+        try:
+            cache_key = f"auth:token:{token}"
+            await self.redis_client.set(cache_key, json.dumps(user_data), ex=ttl or self.cache_ttl['auth'])
+        except Exception as e:
+            logger.error(f"设置认证令牌缓存失败: {str(e)}")
+    
+    async def get_auth_token(self, token: str) -> Optional[Dict]:
+        """获取认证令牌缓存"""
+        try:
+            cache_key = f"auth:token:{token}"
+            data = await self.redis_client.get(cache_key)
+            return json.loads(data) if data else None
+        except Exception as e:
+            logger.error(f"获取认证令牌缓存失败: {str(e)}")
+            return None
+    
+    async def delete_auth_token(self, token: str):
+        """删除认证令牌缓存"""
+        try:
+            cache_key = f"auth:token:{token}"
+            await self.redis_client.delete(cache_key)
+        except Exception as e:
+            logger.error(f"删除认证令牌缓存失败: {str(e)}")
+    
+    async def set_user_permissions(self, user_id: str, permissions: List[str], ttl: int = None):
+        """设置用户权限缓存"""
+        try:
+            cache_key = f"auth:permissions:{user_id}"
+            await self.redis_client.set(cache_key, json.dumps(permissions), ex=ttl or self.cache_ttl['auth'])
+        except Exception as e:
+            logger.error(f"设置用户权限缓存失败: {str(e)}")
+    
+    async def get_user_permissions(self, user_id: str) -> List[str]:
+        """获取用户权限缓存"""
+        try:
+            cache_key = f"auth:permissions:{user_id}"
+            data = await self.redis_client.get(cache_key)
+            return json.loads(data) if data else []
+        except Exception as e:
+            logger.error(f"获取用户权限缓存失败: {str(e)}")
+            return []
+
+    # ==================== 统计数据缓存 ====================
+    
+    async def set_stats(self, stats_type: str, stats_data: Dict, ttl: int = None):
+        """设置统计数据缓存"""
+        try:
+            cache_key = f"stats:{stats_type}"
+            await self.redis_client.set(cache_key, json.dumps(stats_data), ex=ttl or self.cache_ttl['stats'])
+        except Exception as e:
+            logger.error(f"设置统计数据缓存失败: {str(e)}")
+    
+    async def get_stats(self, stats_type: str) -> Optional[Dict]:
+        """获取统计数据缓存"""
+        try:
+            cache_key = f"stats:{stats_type}"
+            data = await self.redis_client.get(cache_key)
+            return json.loads(data) if data else None
+        except Exception as e:
+            logger.error(f"获取统计数据缓存失败: {str(e)}")
+            return None 

@@ -1,90 +1,81 @@
-import React from 'react'
-import { Layout, Menu, type MenuProps } from 'antd'
-import { useNavigate, useLocation } from 'react-router-dom'
+import React from 'react';
+import { Menu } from 'antd';
 import {
-  DashboardOutlined,
-  AppstoreOutlined,
-  SettingOutlined,
-  ExperimentOutlined,
-  CloudServerOutlined,
-  ApiOutlined,
-  ToolOutlined,
-  MonitorOutlined
-} from '@ant-design/icons'
-
-const { Sider } = Layout
+  DashboardOutlined, SwapOutlined, FilterOutlined,
+  BarChartOutlined, HistoryOutlined, DatabaseOutlined,
+  FileTextOutlined
+} from '@ant-design/icons';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 const Sidebar: React.FC = () => {
-  const navigate = useNavigate()
-  const location = useLocation()
+  const location = useLocation();
+  const navigate = useNavigate();
 
-  const menuItems: MenuProps['items'] = [
+  const menuItems = [
     {
       key: '/',
       icon: <DashboardOutlined />,
-      label: '仪表盘'
+      label: '总览',
+      onClick: () => navigate('/')
+    },
+    {
+      key: '/model-routing',
+      icon: <SwapOutlined />,
+      label: '模型路由',
+      onClick: () => navigate('/model-routing')
+    },
+    {
+      key: '/namespace',
+      icon: <DatabaseOutlined />,
+      label: '命名空间管理',
+      onClick: () => navigate('/namespace')
+    },
+    {
+      key: '/policy',
+      icon: <FilterOutlined />,
+      label: '策略配置',
+      onClick: () => navigate('/policy')
+    },
+    {
+      key: '/unified-config',
+      icon: <FileTextOutlined />,
+      label: '统一配置管理',
+      onClick: () => navigate('/unified-config')
     },
     {
       key: '/monitoring',
-      icon: <MonitorOutlined />,
-      label: '监控仪表盘'
+      icon: <BarChartOutlined />,
+      label: '流量监控',
+      onClick: () => navigate('/monitoring')
     },
     {
-      key: '/namespaces',
-      icon: <AppstoreOutlined />,
-      label: '命名空间管理'
-    },
-    {
-      key: '/rules',
-      icon: <SettingOutlined />,
-      label: '规则管理'
-    },
-    {
-      key: '/upstream-servers',
-      icon: <CloudServerOutlined />,
-      label: '上游服务器'
-    },
-    {
-      key: '/proxy-rules',
-      icon: <ApiOutlined />,
-      label: '代理规则'
-    },
-    {
-      key: '/nginx-configs',
-      icon: <ToolOutlined />,
-      label: 'Nginx配置'
-    },
-    {
-      key: '/route-test',
-      icon: <ExperimentOutlined />,
-      label: '路由测试'
+      key: '/logs',
+      icon: <HistoryOutlined />,
+      label: '访问日志',
+      onClick: () => navigate('/logs')
     }
-  ]
-
-  const handleMenuClick = ({ key }: { key: string }) => {
-    navigate(key)
-  }
+  ];
 
   return (
-    <Sider width={200} theme="light">
-      <div style={{ 
-        height: '64px', 
-        display: 'flex', 
-        alignItems: 'center', 
-        justifyContent: 'center',
-        borderBottom: '1px solid #f0f0f0'
-      }}>
-        <h2 style={{ margin: 0, color: '#1890ff' }}>AI网关配置中心</h2>
+    <div style={{ padding: '16px 0' }}>
+      <div style={{ padding: '0 16px 16px', borderBottom: '1px solid #f0f0f0', marginBottom: '16px' }}>
+        <div style={{ fontSize: '12px', fontWeight: 600, color: '#8c8c8c', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+          主菜单
+        </div>
       </div>
+      
       <Menu
         mode="inline"
         selectedKeys={[location.pathname]}
-        style={{ height: 'calc(100vh - 64px)', borderRight: 0 }}
+        style={{ 
+          border: 'none', 
+          backgroundColor: 'transparent',
+          fontSize: '14px'
+        }}
         items={menuItems}
-        onClick={handleMenuClick}
       />
-    </Sider>
-  )
-}
+    </div>
+  );
+};
 
-export default Sidebar 
+export default Sidebar;

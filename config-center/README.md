@@ -149,6 +149,8 @@ CREATE TABLE rule_counters (
 ```
 
 ### Redis数据结构
+
+#### 基础配置缓存
 ```redis
 # 命名空间缓存
 config:namespace:1 = {
@@ -184,10 +186,92 @@ config:rules:1 = [
         "priority": 100
     }
 ]
+```
+
+#### 新增业务缓存
+```redis
+# 策略配置缓存
+config:policies:1 = {
+    "policy_id": 1,
+    "name": "enterprise-policy",
+    "type": "混合策略",
+    "namespaces": ["enterprise"],
+    "rules": ["限流: 5000 req/hour", "Token限制: 500000/hour"],
+    "status": "enabled"
+}
+
+# 流量监控缓存
+traffic:metrics = {
+    "total_requests": 150000,
+    "success_rate": "98.5%",
+    "error_rate": "1.5%",
+    "avg_response_time": 250,
+    "qps": 1200
+}
+
+# 访问日志缓存
+config:logs:list = [
+    {
+        "log_id": "log_001",
+        "timestamp": "2024-01-15T15:32:45Z",
+        "level": "ERROR",
+        "request_id": "req_123456",
+        "model": "gpt-4",
+        "client_ip": "192.168.1.100",
+        "status": "500",
+        "response_time": 1200
+    }
+]
+
+# 仪表盘数据缓存
+dashboard:metrics = {
+    "total_requests": 150000,
+    "success_rate": "98.5%",
+    "growth_rate": "12.5%",
+    "input_tokens": 5000000,
+    "output_tokens": 2000000
+}
+
+# 路由规则缓存
+config:locations:1 = {
+    "location_id": 1,
+    "path": "/v1/chat/completions",
+    "upstream": "gpt-4-upstream",
+    "proxy_cache": true,
+    "proxy_buffering": true
+}
+
+# 认证信息缓存
+auth:token:eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9... = {
+    "user_id": "admin",
+    "username": "admin",
+    "roles": ["admin"],
+    "permissions": ["read", "write", "delete"]
+}
 
 # 限流计数器
 rate_limit:wechat:1234567890 = 150
 token_limit:1:hour:1234567890 = 50000
+```
+
+#### 缓存TTL配置
+```python
+cache_ttl = {
+    'namespace': 3600,      # 命名空间缓存1小时
+    'matchers': 3600,       # 匹配器缓存1小时
+    'rules': 3600,          # 规则缓存1小时
+    'upstream': 1800,       # 上游服务器缓存30分钟
+    'proxy': 1800,          # 代理规则缓存30分钟
+    'nginx_config': 7200,   # Nginx配置缓存2小时
+    'policies': 1800,       # 策略配置缓存30分钟
+    'traffic': 300,         # 流量监控缓存5分钟
+    'logs': 600,            # 访问日志缓存10分钟
+    'dashboard': 60,        # 仪表盘数据缓存1分钟
+    'locations': 1800,      # 路由规则缓存30分钟
+    'auth': 3600,           # 认证信息缓存1小时
+    'alerts': 300,          # 告警信息缓存5分钟
+    'stats': 300            # 统计数据缓存5分钟
+}
 ```
 
 ## 🔧 API使用示例

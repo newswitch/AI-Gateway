@@ -8,11 +8,14 @@ from datetime import datetime
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from typing import List, Dict, Any
 
 from app.models import DatabaseManager, ConfigCache
 from app.core.dependencies import set_db_manager, set_cache_manager
 from app.api.v1 import namespaces, matchers, rules, routes, upstream, proxy, nginx_config
+from app.api.v2 import namespaces as namespaces_v2, upstreams, locations, dashboard, policies, traffic, logs, config, auth, metrics
+from app.middleware.metrics_middleware import MetricsMiddleware
 
 # 配置日志
 logging.basicConfig(
@@ -90,6 +93,29 @@ app.include_router(routes.router)
 app.include_router(upstream.router)
 app.include_router(proxy.router)
 app.include_router(nginx_config.router)
+
+# 注册V2适配层路由
+app.include_router(namespaces_v2.router)
+app.include_router(upstreams.router)
+app.include_router(locations.router)
+app.include_router(dashboard.router)
+app.include_router(policies.router)
+app.include_router(traffic.router)
+app.include_router(logs.router)
+app.include_router(config.router)
+app.include_router(auth.router)
+app.include_router(metrics.router)
+
+# 添加指标收集中间件
+app.add_middleware(MetricsMiddleware)
+
+# Prometheus指标端点
+@app.get("/metrics")
+async def metrics():
+    """Prometheus指标端点"""
+    from app.services.metrics_collector import get_metrics_collector
+    metrics_collector = get_metrics_collector()
+    return Response(metrics_collector.get_metrics(), media_type="text/plain")
 
 # 健康检查
 @app.get("/health")

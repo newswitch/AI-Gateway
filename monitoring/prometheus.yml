@@ -1,0 +1,22 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "rules/*.yml"
+
+scrape_configs:
+  # 收集配置中心指标
+  - job_name: 'ai-gateway-config-center'
+    static_configs:
+      - targets: ['ai-gateway-config-center-dev:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+# 远程写入配置（可选，用于长期存储）
+# remote_write:
+#   - url: "http://victoriametrics:8428/api/v1/write"
+#     queue_config:
+#       max_samples_per_send: 1000
+#       batch_send_deadline: 5s

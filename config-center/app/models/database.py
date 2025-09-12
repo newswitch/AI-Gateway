@@ -7,7 +7,7 @@ import json
 import logging
 from typing import Dict, List, Optional, Any
 from datetime import datetime
-from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, Text, DateTime, Boolean, select, insert, update
+from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, Text, DateTime, Boolean, select, insert, update, func
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 logger = logging.getLogger(__name__)
 
@@ -88,6 +88,32 @@ class DatabaseManager:
             Column('update_time', DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
         )
         
+        # 路由规则表（location_rules）
+        self.location_rules = Table(
+            'location_rules', self.metadata,
+            Column('location_id', Integer, primary_key=True, autoincrement=True),
+            Column('path', String(500), nullable=False, comment='路径'),
+            Column('upstream_id', Integer, nullable=False, comment='上游服务器ID'),
+            Column('proxy_cache', Boolean, default=False, comment='代理缓存'),
+            Column('proxy_buffering', Boolean, default=False, comment='代理缓冲'),
+            Column('proxy_pass', String(500), comment='代理转发地址'),
+            Column('is_regex', Boolean, default=False, comment='是否正则表达式'),
+            Column('limit_req_config', Text, comment='限流配置(JSON)'),
+            Column('sse_support', Boolean, default=False, comment='SSE支持'),
+            Column('chunked_transfer', Boolean, default=False, comment='分块传输'),
+            Column('matcher_type', String(20), default='path', comment='匹配器类型'),
+            Column('match_field', String(100), comment='匹配字段'),
+            Column('match_operator', String(20), comment='匹配操作符'),
+            Column('match_value', Text, comment='匹配值'),
+            Column('add_headers', Text, comment='添加的请求头(JSON)'),
+            Column('rewrite_path', String(200), comment='路径重写'),
+            Column('priority', Integer, default=100, comment='优先级'),
+            Column('status', Integer, default=1, comment='状态：1-启用，0-禁用'),
+            Column('created_by', Integer, comment='创建者ID'),
+            Column('create_time', DateTime, default=datetime.now, comment='创建时间'),
+            Column('update_time', DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
+        )
+        
         # Nginx代理规则配置表
         self.proxy_rules = Table(
             'proxy_rules', self.metadata,
@@ -102,6 +128,42 @@ class DatabaseManager:
             Column('status', Integer, default=1, comment='状态：1-启用，0-禁用'),
             Column('create_time', DateTime, default=datetime.now, comment='创建时间'),
             Column('update_time', DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
+        )
+        
+        # 访问日志表
+        self.access_logs = Table(
+            'access_logs', self.metadata,
+            Column('log_id', Integer, primary_key=True, autoincrement=True),
+            Column('request_id', String(100), comment='请求ID'),
+            Column('namespace_id', Integer, comment='命名空间ID'),
+            Column('upstream_id', Integer, comment='上游服务器ID'),
+            Column('client_ip', String(45), comment='客户端IP'),
+            Column('user_agent', Text, comment='用户代理'),
+            Column('method', String(10), comment='请求方法'),
+            Column('path', String(500), comment='请求路径'),
+            Column('status_code', Integer, comment='状态码'),
+            Column('response_time', Integer, comment='响应时间(ms)'),
+            Column('request_size', Integer, comment='请求大小'),
+            Column('response_size', Integer, comment='响应大小'),
+            Column('input_tokens', Integer, comment='输入Token数'),
+            Column('output_tokens', Integer, comment='输出Token数'),
+            Column('api_key', String(100), comment='API密钥'),
+            Column('error_message', Text, comment='错误信息'),
+            Column('timestamp', DateTime, nullable=False, comment='时间戳'),
+            Column('create_time', DateTime, default=datetime.now, comment='创建时间')
+        )
+        
+        # 监控指标表
+        self.monitoring_metrics = Table(
+            'monitoring_metrics', self.metadata,
+            Column('metric_id', Integer, primary_key=True, autoincrement=True),
+            Column('namespace_id', Integer, comment='命名空间ID'),
+            Column('metric_name', String(100), nullable=False, comment='指标名称'),
+            Column('metric_value', String(20), nullable=False, comment='指标值'),
+            Column('metric_unit', String(20), comment='指标单位'),
+            Column('tags', Text, comment='标签(JSON)'),
+            Column('timestamp', DateTime, nullable=False, comment='时间戳'),
+            Column('create_time', DateTime, default=datetime.now, comment='创建时间')
         )
         
         # Nginx全局配置表
@@ -1330,4 +1392,343 @@ class DatabaseManager:
                 return result.rowcount > 0
         except Exception as e:
             logger.error(f"删除nginx配置失败: {str(e)}")
-            return False 
+            return False
+
+    # ==================== 路由规则管理 ====================
+    
+    async def create_location_rule(self, location_data: Dict[str, Any]) -> int:
+        """创建路由规则"""
+        try:
+            async with self.get_session() as session:
+                stmt = insert(self.location_rules).values(
+                    path=location_data['path'],
+                    upstream_id=location_data['upstream_id'],
+                    proxy_cache=location_data.get('proxy_cache', False),
+                    proxy_buffering=location_data.get('proxy_buffering', False),
+                    proxy_pass=location_data.get('proxy_pass'),
+                    is_regex=location_data.get('is_regex', False),
+                    limit_req_config=json.dumps(location_data.get('limit_req_config', {})) if location_data.get('limit_req_config') else None,
+                    sse_support=location_data.get('sse_support', False),
+                    chunked_transfer=location_data.get('chunked_transfer', False),
+                    matcher_type=location_data.get('matcher_type', 'path'),
+                    match_field=location_data.get('match_field'),
+                    match_operator=location_data.get('match_operator'),
+                    match_value=location_data.get('match_value'),
+                    add_headers=json.dumps(location_data.get('add_headers', {})) if location_data.get('add_headers') else None,
+                    rewrite_path=location_data.get('rewrite_path'),
+                    priority=location_data.get('priority', 100),
+                    status=location_data.get('status', 1),
+                    created_by=location_data.get('created_by'),
+                    create_time=datetime.now(),
+                    update_time=datetime.now()
+                )
+                
+                result = await session.execute(stmt)
+                await session.commit()
+                return result.inserted_primary_key[0]
+        except Exception as e:
+            logger.error(f"创建路由规则失败: {str(e)}")
+            raise
+    
+    async def get_location_rule(self, location_id: int) -> Optional[Dict[str, Any]]:
+        """获取路由规则"""
+        try:
+            async with self.get_session() as session:
+                stmt = select(self.location_rules).where(
+                    self.location_rules.c.location_id == location_id,
+                    self.location_rules.c.status == 1
+                )
+                result = await session.execute(stmt)
+                row = result.first()
+                
+                if row:
+                    limit_req_config = None
+                    if row.limit_req_config:
+                        try:
+                            limit_req_config = json.loads(row.limit_req_config)
+                        except json.JSONDecodeError:
+                            pass
+                    
+                    add_headers = None
+                    if row.add_headers:
+                        try:
+                            add_headers = json.loads(row.add_headers)
+                        except json.JSONDecodeError:
+                            pass
+                    
+                    return {
+                        'location_id': row.location_id,
+                        'path': row.path,
+                        'upstream_id': row.upstream_id,
+                        'proxy_cache': row.proxy_cache,
+                        'proxy_buffering': row.proxy_buffering,
+                        'proxy_pass': row.proxy_pass,
+                        'is_regex': row.is_regex,
+                        'limit_req_config': limit_req_config,
+                        'sse_support': row.sse_support,
+                        'chunked_transfer': row.chunked_transfer,
+                        'matcher_type': row.matcher_type,
+                        'match_field': row.match_field,
+                        'match_operator': row.match_operator,
+                        'match_value': row.match_value,
+                        'add_headers': add_headers,
+                        'rewrite_path': row.rewrite_path,
+                        'priority': row.priority,
+                        'status': row.status,
+                        'created_by': row.created_by,
+                        'create_time': row.create_time.isoformat(),
+                        'update_time': row.update_time.isoformat()
+                    }
+                return None
+        except Exception as e:
+            logger.error(f"获取路由规则失败: {str(e)}")
+            return None
+    
+    async def get_all_location_rules(self) -> List[Dict[str, Any]]:
+        """获取所有路由规则"""
+        try:
+            async with self.get_session() as session:
+                stmt = select(self.location_rules).where(self.location_rules.c.status == 1)
+                result = await session.execute(stmt)
+                rows = result.fetchall()
+                
+                location_rules = []
+                for row in rows:
+                    limit_req_config = None
+                    if row.limit_req_config:
+                        try:
+                            limit_req_config = json.loads(row.limit_req_config)
+                        except json.JSONDecodeError:
+                            pass
+                    
+                    add_headers = None
+                    if row.add_headers:
+                        try:
+                            add_headers = json.loads(row.add_headers)
+                        except json.JSONDecodeError:
+                            pass
+                    
+                    location_rules.append({
+                        'location_id': row.location_id,
+                        'path': row.path,
+                        'upstream_id': row.upstream_id,
+                        'proxy_cache': row.proxy_cache,
+                        'proxy_buffering': row.proxy_buffering,
+                        'proxy_pass': row.proxy_pass,
+                        'is_regex': row.is_regex,
+                        'limit_req_config': limit_req_config,
+                        'sse_support': row.sse_support,
+                        'chunked_transfer': row.chunked_transfer,
+                        'matcher_type': row.matcher_type,
+                        'match_field': row.match_field,
+                        'match_operator': row.match_operator,
+                        'match_value': row.match_value,
+                        'add_headers': add_headers,
+                        'rewrite_path': row.rewrite_path,
+                        'priority': row.priority,
+                        'status': row.status,
+                        'created_by': row.created_by,
+                        'create_time': row.create_time.isoformat(),
+                        'update_time': row.update_time.isoformat()
+                    })
+                
+                return location_rules
+        except Exception as e:
+            logger.error(f"获取所有路由规则失败: {str(e)}")
+            return []
+    
+    async def update_location_rule(self, location_id: int, location_data: Dict[str, Any]) -> bool:
+        """更新路由规则"""
+        try:
+            async with self.get_session() as session:
+                stmt = update(self.location_rules).where(
+                    self.location_rules.c.location_id == location_id
+                ).values(
+                    path=location_data.get('path'),
+                    upstream_id=location_data.get('upstream_id'),
+                    proxy_cache=location_data.get('proxy_cache'),
+                    proxy_buffering=location_data.get('proxy_buffering'),
+                    proxy_pass=location_data.get('proxy_pass'),
+                    is_regex=location_data.get('is_regex'),
+                    limit_req_config=json.dumps(location_data.get('limit_req_config', {})) if location_data.get('limit_req_config') else None,
+                    sse_support=location_data.get('sse_support'),
+                    chunked_transfer=location_data.get('chunked_transfer'),
+                    matcher_type=location_data.get('matcher_type'),
+                    match_field=location_data.get('match_field'),
+                    match_operator=location_data.get('match_operator'),
+                    match_value=location_data.get('match_value'),
+                    add_headers=json.dumps(location_data.get('add_headers', {})) if location_data.get('add_headers') else None,
+                    rewrite_path=location_data.get('rewrite_path'),
+                    priority=location_data.get('priority'),
+                    status=location_data.get('status'),
+                    update_time=datetime.now()
+                )
+                
+                await session.execute(stmt)
+                await session.commit()
+                return True
+        except Exception as e:
+            logger.error(f"更新路由规则失败: {str(e)}")
+            return False
+    
+    async def delete_location_rule(self, location_id: int) -> bool:
+        """删除路由规则（软删除）"""
+        try:
+            async with self.get_session() as session:
+                stmt = update(self.location_rules).where(
+                    self.location_rules.c.location_id == location_id
+                ).values(status=0, update_time=datetime.now())
+                
+                await session.execute(stmt)
+                await session.commit()
+                return True
+        except Exception as e:
+            logger.error(f"删除路由规则失败: {str(e)}")
+            return False
+
+    # ==================== 访问日志管理 ====================
+    
+    async def get_access_logs(self, filters: Dict[str, Any] = None, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+        """获取访问日志"""
+        try:
+            async with self.get_session() as session:
+                stmt = select(self.access_logs)
+                
+                # 应用筛选条件
+                if filters:
+                    if filters.get('start_time'):
+                        stmt = stmt.where(self.access_logs.c.timestamp >= filters['start_time'])
+                    if filters.get('end_time'):
+                        stmt = stmt.where(self.access_logs.c.timestamp <= filters['end_time'])
+                    if filters.get('level'):
+                        stmt = stmt.where(self.access_logs.c.status_code >= 400 if filters['level'] == 'error' else self.access_logs.c.status_code < 400)
+                    if filters.get('namespace_id'):
+                        stmt = stmt.where(self.access_logs.c.namespace_id == filters['namespace_id'])
+                    if filters.get('search'):
+                        search_term = f"%{filters['search']}%"
+                        stmt = stmt.where(
+                            (self.access_logs.c.path.like(search_term)) |
+                            (self.access_logs.c.client_ip.like(search_term)) |
+                            (self.access_logs.c.error_message.like(search_term))
+                        )
+                
+                # 排序和分页
+                stmt = stmt.order_by(self.access_logs.c.timestamp.desc()).limit(limit).offset(offset)
+                
+                result = await session.execute(stmt)
+                rows = result.fetchall()
+                
+                logs = []
+                for row in rows:
+                    logs.append({
+                        'log_id': row.log_id,
+                        'request_id': row.request_id,
+                        'namespace_id': row.namespace_id,
+                        'upstream_id': row.upstream_id,
+                        'client_ip': row.client_ip,
+                        'user_agent': row.user_agent,
+                        'method': row.method,
+                        'path': row.path,
+                        'status_code': row.status_code,
+                        'response_time': row.response_time,
+                        'request_size': row.request_size,
+                        'response_size': row.response_size,
+                        'input_tokens': row.input_tokens,
+                        'output_tokens': row.output_tokens,
+                        'api_key': row.api_key,
+                        'error_message': row.error_message,
+                        'timestamp': row.timestamp.isoformat(),
+                        'create_time': row.create_time.isoformat()
+                    })
+                
+                return logs
+        except Exception as e:
+            logger.error(f"获取访问日志失败: {str(e)}")
+            return []
+    
+    async def get_log_stats(self) -> Dict[str, Any]:
+        """获取日志统计"""
+        try:
+            async with self.get_session() as session:
+                # 总日志数
+                total_stmt = select(func.count(self.access_logs.c.log_id))
+                total_result = await session.execute(total_stmt)
+                total_logs = total_result.scalar() or 0
+                
+                # 错误日志数
+                error_stmt = select(func.count(self.access_logs.c.log_id)).where(self.access_logs.c.status_code >= 400)
+                error_result = await session.execute(error_stmt)
+                error_count = error_result.scalar() or 0
+                
+                # 警告日志数（2xx-3xx但有错误信息）
+                warning_stmt = select(func.count(self.access_logs.c.log_id)).where(
+                    (self.access_logs.c.status_code < 400) & 
+                    (self.access_logs.c.error_message.isnot(None))
+                )
+                warning_result = await session.execute(warning_stmt)
+                warning_count = warning_result.scalar() or 0
+                
+                # 信息日志数
+                info_count = total_logs - error_count - warning_count
+                
+                # 错误率
+                error_rate = f"{(error_count / total_logs * 100):.1f}%" if total_logs > 0 else "0%"
+                
+                # 平均响应时间
+                avg_response_stmt = select(self.access_logs.c.response_time).where(
+                    self.access_logs.c.response_time.isnot(None)
+                )
+                avg_response_result = await session.execute(avg_response_stmt)
+                response_times = [row[0] for row in avg_response_result.fetchall() if row[0] is not None]
+                avg_response_time = sum(response_times) / len(response_times) if response_times else 0
+                
+                return {
+                    'total_logs': total_logs,
+                    'error_count': error_count,
+                    'warning_count': warning_count,
+                    'info_count': info_count,
+                    'debug_count': 0,  # 暂时设为0
+                    'error_rate': error_rate,
+                    'avg_response_time': int(avg_response_time)
+                }
+        except Exception as e:
+            logger.error(f"获取日志统计失败: {str(e)}")
+            return {
+                'total_logs': 0,
+                'error_count': 0,
+                'warning_count': 0,
+                'info_count': 0,
+                'debug_count': 0,
+                'error_rate': '0%',
+                'avg_response_time': 0
+            }
+    
+    async def create_access_log(self, log_data: Dict[str, Any]) -> int:
+        """创建访问日志"""
+        try:
+            async with self.get_session() as session:
+                stmt = insert(self.access_logs).values(
+                    request_id=log_data.get('request_id'),
+                    namespace_id=log_data.get('namespace_id'),
+                    upstream_id=log_data.get('upstream_id'),
+                    client_ip=log_data.get('client_ip'),
+                    user_agent=log_data.get('user_agent'),
+                    method=log_data.get('method'),
+                    path=log_data.get('path'),
+                    status_code=log_data.get('status_code'),
+                    response_time=log_data.get('response_time'),
+                    request_size=log_data.get('request_size'),
+                    response_size=log_data.get('response_size'),
+                    input_tokens=log_data.get('input_tokens'),
+                    output_tokens=log_data.get('output_tokens'),
+                    api_key=log_data.get('api_key'),
+                    error_message=log_data.get('error_message'),
+                    timestamp=log_data.get('timestamp', datetime.now())
+                )
+                
+                result = await session.execute(stmt)
+                await session.commit()
+                return result.inserted_primary_key[0]
+        except Exception as e:
+            logger.error(f"创建访问日志失败: {str(e)}")
+            raise 
