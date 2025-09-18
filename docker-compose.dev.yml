@@ -38,9 +38,7 @@ services:
 
   # Token计算服务
   token-service:
-    build: 
-      context: ./services/token-count
-      dockerfile: Dockerfile
+    image: ai-gateway-token-service
     container_name: ai-gateway-token-service-dev
     restart: unless-stopped
     ports:
@@ -116,9 +114,9 @@ services:
     ports:
       - "3000:3000"
     environment:
-      VITE_API_BASE_URL: http://ai-gateway-config-center-dev:8000
-      VITE_MONITORING_ENABLED: true
-      VITE_MONITORING_REFRESH_INTERVAL: 30000
+      - VITE_API_BASE_URL=http://localhost:8001
+      - VITE_MONITORING_ENABLED=true
+      - VITE_MONITORING_REFRESH_INTERVAL=30000
     volumes:
       # 挂载源代码，支持热重载
       - ./frontend:/app
@@ -130,7 +128,7 @@ services:
     networks:
       - ai-gateway-dev-network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://0.0.0.0:3000"]
       timeout: 10s
       retries: 3
       start_period: 30s

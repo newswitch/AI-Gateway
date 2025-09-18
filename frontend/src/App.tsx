@@ -1,4 +1,4 @@
-import React from 'react';
+// import React from 'react'; // React 17+ 不需要显式导入
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { Layout } from 'antd';
 import HeaderComponent from './components/Header';

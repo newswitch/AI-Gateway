@@ -14,7 +14,7 @@ interface ApiResponse<T = any> {
 }
 
 // 分页响应类型
-interface PaginatedResponse<T = any> {
+export interface PaginatedResponse<T = any> {
   items: T[];
   total: number;
   page: number;
@@ -42,23 +42,55 @@ async function request<T = any>(
     ...headers,
   };
 
-  // 添加认证token
-  const token = localStorage.getItem('token');
-  if (token) {
-    requestHeaders.Authorization = `Bearer ${token}`;
-  }
+  // 添加认证token - 临时使用固定token
+  const token = localStorage.getItem('token') || 'dummy-token';
+  requestHeaders.Authorization = `Bearer ${token}`;
 
-  const response = await fetch(url, {
-    method,
-    headers: requestHeaders,
-    body: body ? JSON.stringify(body) : undefined,
+  console.log('[API] 请求开始:', { 
+    url, 
+    method, 
+    headers: requestHeaders, 
+    body,
+    API_BASE_URL 
   });
+  
+  try {
+    const response = await fetch(url, {
+      method,
+      headers: requestHeaders,
+      body: body ? JSON.stringify(body) : undefined,
+    });
 
-  if (!response.ok) {
-    throw new Error(`HTTP error! status: ${response.status}`);
+    console.log('[API] 响应状态:', { 
+      status: response.status, 
+      statusText: response.statusText, 
+      url,
+      ok: response.ok 
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[API] 错误响应:', {
+        status: response.status,
+        statusText: response.statusText,
+        url,
+        errorText
+      });
+      throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+    }
+
+    const result = await response.json();
+    console.log('[API] 成功响应:', result);
+    return result;
+  } catch (error) {
+    console.error('[API] 请求异常:', {
+      url,
+      method,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    throw error;
   }
-
-  return response.json();
 }
 
 // 仪表盘API
@@ -122,6 +154,59 @@ export const namespaceApi = {
   getNamespaceRequestTrend: (timeRange: string = 'today') => {
     const params = new URLSearchParams({ timeRange });
     return request(`/api/namespaces/request-trend?${params.toString()}`);
+  },
+};
+
+// 匹配器管理API
+export const matcherApi = {
+  // 获取命名空间下的匹配器
+  getMatchers: (namespaceId: string) => request(`/api/v1/namespaces/${namespaceId}/matchers`),
+  
+  // 创建匹配器
+  createMatcher: (namespaceId: string, data: any) => 
+    request(`/api/v1/namespaces/${namespaceId}/matchers`, { method: 'POST', body: data }),
+  
+  // 更新匹配器
+  updateMatcher: (matcherId: string, data: any) => 
+    request(`/api/v1/matchers/${matcherId}`, { method: 'PUT', body: data }),
+  
+  // 删除匹配器
+  deleteMatcher: (matcherId: string) => 
+    request(`/api/v1/matchers/${matcherId}`, { method: 'DELETE' }),
+  
+  // 获取所有匹配器
+  getAllMatchers: () => request('/api/v1/matchers'),
+};
+
+// 规则管理API
+export const ruleApi = {
+  // 获取命名空间下的规则
+  getRules: (namespaceId: string, ruleType?: string) => {
+    const params = new URLSearchParams();
+    if (ruleType) params.append('rule_type', ruleType);
+    return request(`/api/v1/namespaces/${namespaceId}/rules?${params.toString()}`);
+  },
+  
+  // 创建规则
+  createRule: (namespaceId: string, data: any) => 
+    request(`/api/v1/namespaces/${namespaceId}/rules`, { method: 'POST', body: data }),
+  
+  // 更新规则
+  updateRule: (ruleId: string, data: any) => 
+    request(`/api/v1/rules/${ruleId}`, { method: 'PUT', body: data }),
+  
+  // 删除规则
+  deleteRule: (ruleId: string) => 
+    request(`/api/v1/rules/${ruleId}`, { method: 'DELETE' }),
+  
+  // 获取规则类型
+  getRuleTypes: () => request('/api/v1/rules/types'),
+  
+  // 获取所有规则
+  getAllRules: (ruleType?: string) => {
+    const params = new URLSearchParams();
+    if (ruleType) params.append('rule_type', ruleType);
+    return request(`/api/v1/rules?${params.toString()}`);
   },
 };
 

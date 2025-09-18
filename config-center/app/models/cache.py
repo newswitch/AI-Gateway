@@ -22,20 +22,16 @@ class ConfigCache:
         
         # 缓存配置
         self.cache_ttl = {
-            'namespace': 3600,      # 命名空间缓存1小时
-            'matchers': 3600,       # 匹配器缓存1小时
-            'rules': 3600,          # 规则缓存1小时
-            'upstream': 1800,       # 上游服务器缓存30分钟
-            'proxy': 1800,          # 代理规则缓存30分钟
-            'nginx_config': 7200,   # Nginx配置缓存2小时
-            'policies': 1800,       # 策略配置缓存30分钟
-            'traffic': 300,         # 流量监控缓存5分钟
-            'logs': 600,            # 访问日志缓存10分钟
-            'dashboard': 60,        # 仪表盘数据缓存1分钟
-            'locations': 1800,      # 路由规则缓存30分钟
-            'auth': 3600,           # 认证信息缓存1小时
-            'alerts': 300,          # 告警信息缓存5分钟
-            'stats': 300            # 统计数据缓存5分钟
+            'namespace': 3600,           # 命名空间缓存1小时
+            'location_rules': 1800,      # 路由规则缓存30分钟（原 matchers + proxy_rules）
+            'policies': 1800,            # 策略配置缓存30分钟（原 rules）
+            'upstream_servers': 1800,    # 上游服务器缓存30分钟（原 upstream）
+            'system_configs': 7200,      # 系统配置缓存2小时（原 nginx_config）
+            'monitoring_metrics': 300,   # 监控指标缓存5分钟（新增）
+            'access_logs': 600,          # 访问日志缓存10分钟
+            'dashboard': 60,             # 仪表盘数据缓存1分钟
+            'auth': 3600,                # 认证信息缓存1小时
+            'stats': 300                 # 统计数据缓存5分钟
         }
     
     async def connect(self):
@@ -160,7 +156,7 @@ class ConfigCache:
             config_changed = await self._detect_config_changes(old_rules, rules)
             
             # 更新规则缓存
-            await self.redis_client.set(cache_key, json.dumps(rules), ex=ttl or self.cache_ttl['rules'])
+            await self.redis_client.set(cache_key, json.dumps(rules), ex=ttl or self.cache_ttl['policies'])
             
             # 如果配置发生变化，重置相关计数器
             if config_changed:
@@ -556,6 +552,10 @@ class ConfigCache:
                 # 使用MySQL返回的ID更新Redis
                 namespace_data['namespace_id'] = namespace_id
                 await self.set_namespace(namespace_id, namespace_data)
+                
+                # 自动创建默认的消息匹配器
+                await self._create_default_matcher(namespace_id, namespace_data)
+                
                 return namespace_id
             else:
                 raise Exception("MySQL写入失败")
@@ -563,6 +563,44 @@ class ConfigCache:
         except Exception as e:
             logger.error(f"双写创建命名空间失败: {str(e)}")
             raise
+    
+    async def _create_default_matcher(self, namespace_id: int, namespace_data: Dict[str, Any]):
+        """为命名空间创建默认的消息匹配器"""
+        try:
+            if not self.db_manager:
+                return
+                
+            # 根据命名空间代码创建默认匹配器
+            namespace_code = namespace_data.get('namespace_code', '')
+            namespace_name = namespace_data.get('namespace_name', '')
+            
+            # 检查是否有前端传递的匹配器配置
+            matcher_config = namespace_data.get('matcher_config', {})
+            
+            # 创建基于命名空间代码的默认匹配器
+            matcher_data = {
+                'namespace_id': namespace_id,
+                'matcher_name': f'{namespace_name}渠道匹配',
+                'matcher_type': matcher_config.get('matcher_type', 'header'),
+                'match_field': matcher_config.get('match_field', 'channelcode'),
+                'match_operator': matcher_config.get('match_operator', 'equals'),
+                'match_value': matcher_config.get('match_value', namespace_code),
+                'priority': matcher_config.get('priority', 100),
+                'status': 1
+            }
+            
+            # 创建匹配器
+            matcher_id = await self.db_manager.create_matcher(matcher_data)
+            
+            # 更新缓存
+            matchers = await self.db_manager.get_matchers_by_namespace(namespace_id)
+            await self.set_matchers(namespace_id, matchers)
+            
+            logger.info(f"为命名空间 {namespace_id} 创建默认匹配器成功，matcher_id={matcher_id}")
+            
+        except Exception as e:
+            logger.error(f"创建默认匹配器失败: {str(e)}")
+            # 不抛出异常，避免影响命名空间创建
     
     async def update_namespace_dual_write(self, namespace_id: int, namespace_data: Dict[str, Any]) -> bool:
         """双写更新命名空间 - Redis和MySQL并行更新"""
@@ -610,6 +648,34 @@ class ConfigCache:
             
         except Exception as e:
             logger.error(f"双写更新命名空间失败: {str(e)}")
+            return False
+    
+    async def delete_namespace(self, namespace_id: int) -> bool:
+        """删除命名空间（硬删除）"""
+        try:
+            # 先删除MySQL中的数据
+            if self.db_manager:
+                success = await self.db_manager.delete_namespace(namespace_id)
+                if not success:
+                    logger.error(f"MySQL删除命名空间失败: namespace_id={namespace_id}")
+                    return False
+            
+            # 删除Redis缓存
+            cache_key = self._get_cache_key("namespaces", str(namespace_id))
+            await self.redis_client.delete(cache_key)
+            
+            # 删除相关的匹配器和规则缓存
+            matcher_cache_key = self._get_cache_key("matchers", str(namespace_id))
+            await self.redis_client.delete(matcher_cache_key)
+            
+            rules_cache_key = self._get_cache_key("rules", str(namespace_id))
+            await self.redis_client.delete(rules_cache_key)
+            
+            logger.info(f"命名空间删除成功: namespace_id={namespace_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"删除命名空间失败: {str(e)}")
             return False
     
     async def create_rule_dual_write(self, rule_data: Dict[str, Any]) -> int:
@@ -1288,3 +1354,44 @@ class ConfigCache:
         except Exception as e:
             logger.error(f"获取统计数据缓存失败: {str(e)}")
             return None 
+    
+    # ==================== 策略缓存管理 ====================
+    
+    async def set_policies(self, namespace_id: int, policies: List[Dict], ttl: int = None):
+        """设置命名空间策略缓存"""
+        try:
+            cache_key = f"namespace:{namespace_id}:policies"
+            await self.redis_client.setex(
+                cache_key, 
+                ttl or self.cache_ttl['policies'], 
+                json.dumps(policies, ensure_ascii=False)
+            )
+            logger.info(f"设置命名空间策略缓存成功: {namespace_id}")
+        except Exception as e:
+            logger.error(f"设置命名空间策略缓存失败: {str(e)}")
+    
+    async def get_policies(self, namespace_id: int) -> List[Dict]:
+        """获取命名空间策略缓存"""
+        try:
+            cache_key = f"namespace:{namespace_id}:policies"
+            data = await self.redis_client.get(cache_key)
+            
+            if data:
+                return json.loads(data)
+            
+            # 缓存未命中，从MySQL读取
+            if self.db_manager:
+                policies = await self.db_manager.get_policies_by_namespace(namespace_id)
+                if policies:
+                    # 异步更新缓存
+                    asyncio.create_task(self.set_policies(namespace_id, policies))
+                    return policies
+            
+            return []
+            
+        except Exception as e:
+            logger.error(f"获取命名空间策略缓存失败: {str(e)}")
+            # 降级到MySQL
+            if self.db_manager:
+                return await self.db_manager.get_policies_by_namespace(namespace_id)
+            return []

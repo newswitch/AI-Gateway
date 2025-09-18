@@ -75,6 +75,15 @@ async def get_namespaces(
                           for field in ['namespace_code', 'namespace_name', 'description']):
                     continue
             
+            # 获取匹配器信息
+            matcher = None
+            try:
+                matchers = await db.get_matchers_by_namespace(ns.get('namespace_id'))
+                if matchers and len(matchers) > 0:
+                    matcher = matchers[0]  # 取第一个匹配器
+            except Exception as e:
+                logger.warning(f"获取命名空间 {ns.get('namespace_id')} 的匹配器失败: {str(e)}")
+            
             # 转换为新前端期望的格式
             namespace_data = {
                 "id": str(ns.get('namespace_id', '')),
@@ -84,16 +93,10 @@ async def get_namespaces(
                     "name": "系统管理员",  # 暂时硬编码，后续可以从用户表获取
                     "avatar": "https://picsum.photos/id/1001/200/200"
                 },
-                "defaultUpstream": "未绑定",  # 暂时硬编码，后续从关联表获取
-                "qps": 100,  # 暂时硬编码，后续从统计表获取
-                "concurrency": 50,  # 暂时硬编码，后续从配置表获取
-                "quota": "10万/天",  # 暂时硬编码，后续从配置表获取
-                "maxSize": "10MB",  # 暂时硬编码，后续从配置表获取
-                "timeout": "30s",  # 暂时硬编码，后续从配置表获取
                 "status": "enabled" if ns.get('status') == 1 else "disabled",
-                "quotaWarning": False,  # 暂时硬编码，后续从统计表计算
                 "createdAt": ns.get('create_time', '')[:10] if ns.get('create_time') else '',
-                "updatedAt": ns.get('update_time', '')[:10] if ns.get('update_time') else ''
+                "updatedAt": ns.get('update_time', '')[:10] if ns.get('update_time') else '',
+                "matcher": matcher
             }
             
             filtered_namespaces.append(namespace_data)
@@ -326,14 +329,7 @@ async def get_namespace(namespace_id: int):
                 "name": "系统管理员",
                 "avatar": "https://picsum.photos/id/1001/200/200"
             },
-            "defaultUpstream": "未绑定",
-            "qps": 100,
-            "concurrency": 50,
-            "quota": "10万/天",
-            "maxSize": "10MB",
-            "timeout": "30s",
             "status": "enabled" if namespace.get('status') == 1 else "disabled",
-            "quotaWarning": False,
             "createdAt": namespace.get('create_time', '')[:10] if namespace.get('create_time') else '',
             "updatedAt": namespace.get('update_time', '')[:10] if namespace.get('update_time') else ''
         }
@@ -362,7 +358,14 @@ async def create_namespace(namespace_data: Dict[str, Any], current_user: Dict = 
             "namespace_code": namespace_data.get("code", ""),
             "namespace_name": namespace_data.get("name", ""),
             "description": namespace_data.get("description", ""),
-            "status": 1 if namespace_data.get("status") == "enabled" else 0
+            "status": 1 if namespace_data.get("status") == "enabled" else 0,
+            "matcher_config": {
+                "matcher_type": namespace_data.get("matcherType", "header"),
+                "match_field": namespace_data.get("matchField", "channelcode"),
+                "match_operator": namespace_data.get("matchOperator", "equals"),
+                "match_value": namespace_data.get("matchValue", namespace_data.get("code", "")),
+                "priority": namespace_data.get("priority", 100)
+            }
         }
         
         # 使用双写策略创建命名空间
@@ -412,6 +415,10 @@ async def update_namespace(namespace_id: int, namespace_data: Dict[str, Any], cu
         success = await cache.update_namespace_dual_write(namespace_id, update_data)
         if not success:
             raise HTTPException(status_code=500, detail="更新命名空间失败")
+        
+        # 更新匹配器配置
+        if any(key in namespace_data for key in ["matcherType", "matchField", "matchOperator", "matchValue", "priority"]):
+            await _update_namespace_matcher(namespace_id, namespace_data)
         
         # 获取更新后的命名空间
         updated_namespace = await cache.get_namespace(namespace_id)
@@ -501,6 +508,52 @@ async def update_namespace_status(namespace_id: int, status_data: Dict[str, Any]
     except Exception as e:
         logger.error(f"更新命名空间状态失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"更新命名空间状态失败: {str(e)}")
+
+async def _update_namespace_matcher(namespace_id: int, namespace_data: Dict[str, Any]):
+    """更新命名空间的匹配器配置"""
+    try:
+        db = get_db()
+        cache = get_cache()
+        
+        # 获取现有匹配器
+        existing_matchers = await db.get_matchers_by_namespace(namespace_id)
+        
+        if existing_matchers and len(existing_matchers) > 0:
+            # 更新现有匹配器
+            matcher_id = existing_matchers[0]['matcher_id']
+            matcher_data = {
+                'matcher_type': namespace_data.get('matcherType', 'header'),
+                'match_field': namespace_data.get('matchField', 'channelcode'),
+                'match_operator': namespace_data.get('matchOperator', 'equals'),
+                'match_value': namespace_data.get('matchValue', ''),
+                'priority': namespace_data.get('priority', 100)
+            }
+            
+            await db.update_matcher(matcher_id, matcher_data)
+        else:
+            # 创建新匹配器
+            matcher_data = {
+                'namespace_id': namespace_id,
+                'matcher_name': f'{namespace_data.get("name", "命名空间")}渠道匹配',
+                'matcher_type': namespace_data.get('matcherType', 'header'),
+                'match_field': namespace_data.get('matchField', 'channelcode'),
+                'match_operator': namespace_data.get('matchOperator', 'equals'),
+                'match_value': namespace_data.get('matchValue', ''),
+                'priority': namespace_data.get('priority', 100),
+                'status': 1
+            }
+            
+            await db.create_matcher(matcher_data)
+        
+        # 更新缓存
+        matchers = await db.get_matchers_by_namespace(namespace_id)
+        await cache.set_matchers(namespace_id, matchers)
+        
+        logger.info(f"命名空间 {namespace_id} 的匹配器更新成功")
+        
+    except Exception as e:
+        logger.error(f"更新命名空间 {namespace_id} 的匹配器失败: {str(e)}")
+        # 不抛出异常，避免影响命名空间更新
 
 @router.get("/namespaces/{namespace_id}/stats", response_model=Dict[str, Any])
 async def get_namespace_stats(namespace_id: int):

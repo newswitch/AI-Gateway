@@ -1,4 +1,4 @@
--- AI智能网关 - Lua初始化脚本
+-- AI智能网关 - 核心初始化模块
 -- 负责初始化全局配置、加载模块和设置共享内存
 
 local _M = {}
@@ -7,18 +7,29 @@ local _M = {}
 local config = {
     -- 配置中心设置
     config_center = {
-        host = os.getenv("CONFIG_CENTER_HOST") or "config-center",
-        port = os.getenv("CONFIG_CENTER_PORT") or "8000",
+        host = os.getenv("CONFIG_CENTER_HOST") or "ai-gateway-config-center-dev",
+        port = os.getenv("CONFIG_CENTER_PORT") or "8001",
         timeout = 5000,  -- 5秒超时
         retry_times = 3
     },
     
     -- Redis设置
     redis = {
-        host = os.getenv("REDIS_HOST") or "redis",
+        host = os.getenv("REDIS_HOST") or "ai-gateway-redis-dev",
         port = os.getenv("REDIS_PORT") or "6379",
         db = os.getenv("REDIS_DB") or "0",
         timeout = 1000,  -- 1秒超时
+        pool_size = 100
+    },
+    
+    -- MySQL设置
+    mysql = {
+        host = os.getenv("MYSQL_HOST") or "ai-gateway-mysql-dev",
+        port = os.getenv("MYSQL_PORT") or "3307",
+        database = os.getenv("MYSQL_DATABASE") or "ai_gateway_config",
+        user = os.getenv("MYSQL_USER") or "root",
+        password = os.getenv("MYSQL_PASSWORD") or "ai_gateway_root",
+        timeout = 1000,
         pool_size = 100
     },
     
@@ -26,8 +37,9 @@ local config = {
     cache = {
         namespace_ttl = 3600,      -- 命名空间缓存1小时
         matchers_ttl = 3600,       -- 匹配器缓存1小时
-        rules_ttl = 3600,          -- 规则缓存1小时
+        policies_ttl = 3600,       -- 策略缓存1小时
         upstream_ttl = 1800,       -- 上游服务缓存30分钟
+        locations_ttl = 1800,      -- 路由规则缓存30分钟
         rate_limit_ttl = 3600      -- 限流数据缓存1小时
     },
     
@@ -74,26 +86,30 @@ end
 -- 加载Lua模块
 function _M.load_modules()
     -- 工具模块
-    require "utils.json_utils"
-    require "utils.time_utils"
-    require "utils.redis_client"
-    require "utils.http_client"
+    require "utils.json"
+    require "utils.redis"
+    -- require "utils.mysql"  
+    require "utils.http"
     
     -- 配置模块
-    require "config.dynamic_config"
+    require "config.cache"
+    require "config.loader"
+    -- require "config.sync"  
     
     -- 认证模块
-    require "auth.rule_checker"
-    require "auth.rate_limiter"
+    require "auth.namespace_matcher"
+    require "auth.policy_enforcer"
+    -- require "auth.rate_limiter"  
     
     -- 路由模块
-    require "routing.dynamic_router"
-    require "routing.upstream_manager"
+    require "routing.router"
+    require "routing.upstream_selector"
+    require "routing.proxy_handler"
     
     -- 监控模块
     require "monitoring.metrics"
-    require "monitoring.health_check"
-    require "monitoring.log_handler"
+    require "monitoring.logger"
+    require "monitoring.health"
     
     ngx.log(ngx.INFO, "All Lua modules loaded successfully")
 end
@@ -108,9 +124,6 @@ function _M.init_config()
     
     -- 加载模块
     _M.load_modules()
-    
-    -- 注意：不在初始化阶段刷新配置，而是在请求处理阶段进行
-    -- 这样可以避免在init_by_lua阶段连接数据库的问题
     
     ngx.log(ngx.INFO, "Gateway initialization completed")
     return true
@@ -135,7 +148,7 @@ function _M.health_check()
     }
     
     -- 检查Redis连接
-    local redis_client = require "utils.redis_client"
+    local redis_client = require "utils.redis"
     local redis_ok, redis_err = redis_client.ping()
     health.services.redis = {
         status = redis_ok and "healthy" or "unhealthy",
@@ -143,8 +156,8 @@ function _M.health_check()
     }
     
     -- 检查配置中心连接
-    local dynamic_config = require "config.dynamic_config"
-    local configs = dynamic_config.get_all_configs()
+    local config_loader = require "config.loader"
+    local configs = config_loader.get_all_configs()
     health.services.config_center = {
         status = configs and "healthy" or "unhealthy",
         error = configs and nil or "Failed to get configurations"
@@ -173,4 +186,4 @@ function _M.health_check()
     return health
 end
 
-return _M 
+return _M

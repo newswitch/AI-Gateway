@@ -7,7 +7,7 @@ import json
 import logging
 from typing import Dict, List, Optional, Any
 from datetime import datetime
-from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, Text, DateTime, Boolean, select, insert, update, func
+from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, Text, DateTime, Boolean, select, insert, update, delete, func
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 logger = logging.getLogger(__name__)
 
@@ -63,6 +63,25 @@ class DatabaseManager:
             Column('rule_config', Text, nullable=False, comment='规则配置(JSON)'),
             Column('priority', Integer, default=100, comment='优先级'),
             Column('status', Integer, default=1, comment='状态：1-启用，0-禁用'),
+            Column('create_time', DateTime, default=datetime.now, comment='创建时间'),
+            Column('update_time', DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
+        )
+        
+        # 策略表
+        self.policies = Table(
+            'policies', self.metadata,
+            Column('policy_id', Integer, primary_key=True, autoincrement=True),
+            Column('policy_name', String(100), nullable=False, comment='策略名称'),
+            Column('policy_type', String(50), nullable=False, comment='策略类型：token-limit/concurrency-limit/qps-limit/message-matching'),
+            Column('description', Text, comment='策略描述'),
+            Column('namespace_id', Integer, comment='命名空间ID'),
+            Column('namespaces', Text, comment='关联命名空间(JSON)'),
+            Column('rules', Text, nullable=False, comment='规则列表(JSON)'),
+            Column('rule_type', String(50), comment='规则类型'),
+            Column('rule_config', Text, comment='规则配置(JSON)'),
+            Column('priority', Integer, default=100, comment='优先级'),
+            Column('status', Integer, default=1, comment='状态：1-启用，0-禁用'),
+            Column('created_by', Integer, comment='创建者ID'),
             Column('create_time', DateTime, default=datetime.now, comment='创建时间'),
             Column('update_time', DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
         )
@@ -295,12 +314,12 @@ class DatabaseManager:
             return False
     
     async def delete_namespace(self, namespace_id: int) -> bool:
-        """删除命名空间（软删除）"""
+        """删除命名空间（硬删除）"""
         try:
             async with self.get_session() as session:
-                stmt = update(self.namespaces).where(
+                stmt = self.namespaces.delete().where(
                     self.namespaces.c.namespace_id == namespace_id
-                ).values(status=0, update_time=datetime.now())
+                )
                 
                 await session.execute(stmt)
                 await session.commit()
@@ -408,8 +427,8 @@ class DatabaseManager:
                         'match_field': row.match_field,
                         'match_operator': row.match_operator,
                         'match_value': row.match_value,
-                        'priority': row.priority,
-                        'status': row.status,
+                        'priority': row.priority if row.priority is not None else 100,
+                        'status': row.status if row.status is not None else 1,
                         'create_time': row.create_time.isoformat(),
                         'update_time': row.update_time.isoformat()
                     }
@@ -443,12 +462,12 @@ class DatabaseManager:
             return False
     
     async def delete_matcher(self, matcher_id: int) -> bool:
-        """删除报文匹配器（软删除）"""
+        """删除报文匹配器（硬删除）"""
         try:
             async with self.get_session() as session:
-                stmt = update(self.message_matchers).where(
+                stmt = self.message_matchers.delete().where(
                     self.message_matchers.c.matcher_id == matcher_id
-                ).values(status=0, update_time=datetime.now())
+                )
                 
                 await session.execute(stmt)
                 await session.commit()
@@ -557,8 +576,8 @@ class DatabaseManager:
                         'rule_name': row.rule_name,
                         'rule_type': row.rule_type,
                         'rule_config': row.rule_config,
-                        'priority': row.priority,
-                        'status': row.status,
+                        'priority': row.priority if row.priority is not None else 100,
+                        'status': row.status if row.status is not None else 1,
                         'create_time': row.create_time.isoformat(),
                         'update_time': row.update_time.isoformat()
                     }
@@ -590,12 +609,12 @@ class DatabaseManager:
             return False
     
     async def delete_rule(self, rule_id: int) -> bool:
-        """删除命名空间规则（软删除）"""
+        """删除命名空间规则（硬删除）"""
         try:
             async with self.get_session() as session:
-                stmt = update(self.namespace_rules).where(
-                    self.namespace_rules.c.rule_id == rule_id
-                ).values(status=0, update_time=datetime.now())
+                stmt = self.rules.delete().where(
+                    self.rules.c.rule_id == rule_id
+                )
                 
                 await session.execute(stmt)
                 await session.commit()
@@ -704,8 +723,8 @@ class DatabaseManager:
                         'rule_name': row.rule_name,
                         'rule_type': row.rule_type,
                         'rule_config': row.rule_config,
-                        'priority': row.priority,
-                        'status': row.status,
+                        'priority': row.priority if row.priority is not None else 100,
+                        'status': row.status if row.status is not None else 1,
                         'create_time': row.create_time.isoformat(),
                         'update_time': row.update_time.isoformat()
                     }
@@ -737,12 +756,12 @@ class DatabaseManager:
             return False
     
     async def delete_token_rule(self, rule_id: int) -> bool:
-        """删除Token限制规则（软删除）"""
+        """删除Token限制规则（硬删除）"""
         try:
             async with self.get_session() as session:
-                stmt = update(self.token_limit_rules).where(
+                stmt = self.token_limit_rules.delete().where(
                     self.token_limit_rules.c.rule_id == rule_id
-                ).values(status=0, update_time=datetime.now())
+                )
                 
                 await session.execute(stmt)
                 await session.commit()
@@ -1146,8 +1165,8 @@ class DatabaseManager:
                         'target_server_id': row.target_server_id,
                         'rewrite_path': row.rewrite_path,
                         'add_headers': add_headers,
-                        'priority': row.priority,
-                        'status': row.status,
+                        'priority': row.priority if row.priority is not None else 100,
+                        'status': row.status if row.status is not None else 1,
                         'create_time': row.create_time.isoformat(),
                         'update_time': row.update_time.isoformat()
                     }
@@ -1182,8 +1201,8 @@ class DatabaseManager:
                         'target_server_id': row.target_server_id,
                         'rewrite_path': row.rewrite_path,
                         'add_headers': add_headers,
-                        'priority': row.priority,
-                        'status': row.status,
+                        'priority': row.priority if row.priority is not None else 100,
+                        'status': row.status if row.status is not None else 1,
                         'create_time': row.create_time.isoformat(),
                         'update_time': row.update_time.isoformat()
                     })
@@ -1473,8 +1492,8 @@ class DatabaseManager:
                         'match_value': row.match_value,
                         'add_headers': add_headers,
                         'rewrite_path': row.rewrite_path,
-                        'priority': row.priority,
-                        'status': row.status,
+                        'priority': row.priority if row.priority is not None else 100,
+                        'status': row.status if row.status is not None else 1,
                         'created_by': row.created_by,
                         'create_time': row.create_time.isoformat(),
                         'update_time': row.update_time.isoformat()
@@ -1525,8 +1544,8 @@ class DatabaseManager:
                         'match_value': row.match_value,
                         'add_headers': add_headers,
                         'rewrite_path': row.rewrite_path,
-                        'priority': row.priority,
-                        'status': row.status,
+                        'priority': row.priority if row.priority is not None else 100,
+                        'status': row.status if row.status is not None else 1,
                         'created_by': row.created_by,
                         'create_time': row.create_time.isoformat(),
                         'update_time': row.update_time.isoformat()
@@ -1572,12 +1591,12 @@ class DatabaseManager:
             return False
     
     async def delete_location_rule(self, location_id: int) -> bool:
-        """删除路由规则（软删除）"""
+        """删除路由规则（硬删除）"""
         try:
             async with self.get_session() as session:
-                stmt = update(self.location_rules).where(
+                stmt = self.location_rules.delete().where(
                     self.location_rules.c.location_id == location_id
-                ).values(status=0, update_time=datetime.now())
+                )
                 
                 await session.execute(stmt)
                 await session.commit()
@@ -1732,3 +1751,186 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"创建访问日志失败: {str(e)}")
             raise 
+
+    # ==================== 策略管理 ====================
+    
+    async def create_policy(self, policy_data: Dict[str, Any]) -> int:
+        """创建策略"""
+        try:
+            async with self.get_session() as session:
+                stmt = insert(self.policies).values(
+                    policy_name=policy_data['policy_name'],
+                    policy_type=policy_data['policy_type'],
+                    description=policy_data.get('description', ''),
+                    namespace_id=policy_data.get('namespace_id'),
+                    namespaces=json.dumps(policy_data.get('namespaces', [])),
+                    rules=json.dumps(policy_data.get('rules', [])),
+                    rule_type=policy_data.get('rule_type'),
+                    rule_config=json.dumps(policy_data.get('rule_config', {})) if isinstance(policy_data.get('rule_config'), dict) else policy_data.get('rule_config'),
+                    priority=policy_data.get('priority', 100),
+                    status=policy_data.get('status', 1),
+                    created_by=policy_data.get('created_by'),
+                    create_time=datetime.now(),
+                    update_time=datetime.now()
+                )
+                
+                result = await session.execute(stmt)
+                await session.commit()
+                return result.inserted_primary_key[0]
+        except Exception as e:
+            logger.error(f"创建策略失败: {str(e)}")
+            raise
+    
+    async def get_policy_by_id(self, policy_id: int) -> Optional[Dict[str, Any]]:
+        """根据ID获取策略"""
+        try:
+            async with self.get_session() as session:
+                # 查询 status = 1 或 status IS NULL 的记录（NULL 视为启用状态）
+                stmt = select(self.policies).where(
+                    self.policies.c.policy_id == policy_id,
+                    (self.policies.c.status == 1) | (self.policies.c.status.is_(None))
+                )
+                result = await session.execute(stmt)
+                row = result.first()
+                
+                if row:
+                    return {
+                        'policy_id': row.policy_id,
+                        'policy_name': row.policy_name,
+                        'policy_type': row.policy_type,
+                        'description': row.description,
+                        'namespace_id': row.namespace_id,
+                        'namespaces': json.loads(row.namespaces) if row.namespaces else [],
+                        'rules': json.loads(row.rules) if row.rules else [],
+                        'rule_type': row.rule_type,
+                        'rule_config': json.loads(row.rule_config) if row.rule_config else {},
+                        'priority': row.priority if row.priority is not None else 100,
+                        'status': row.status if row.status is not None else 1,
+                        'created_by': row.created_by,
+                        'create_time': row.create_time.isoformat(),
+                        'update_time': row.update_time.isoformat()
+                    }
+                return None
+        except Exception as e:
+            logger.error(f"获取策略失败: {str(e)}")
+            return None
+    
+    async def get_all_policies(self, policy_type: str = None) -> List[Dict[str, Any]]:
+        """获取所有策略（只返回启用状态的策略）"""
+        try:
+            async with self.get_session() as session:
+                # 查询 status = 1 或 status IS NULL 的记录（NULL 视为启用状态）
+                stmt = select(self.policies).where(
+                    (self.policies.c.status == 1) | (self.policies.c.status.is_(None))
+                )
+                
+                if policy_type:
+                    stmt = stmt.where(self.policies.c.policy_type == policy_type)
+                
+                result = await session.execute(stmt)
+                rows = result.fetchall()
+                
+                policies = []
+                for row in rows:
+                    policies.append({
+                        'policy_id': row.policy_id,
+                        'policy_name': row.policy_name,
+                        'policy_type': row.policy_type,
+                        'description': row.description,
+                        'namespace_id': row.namespace_id,
+                        'namespaces': json.loads(row.namespaces) if row.namespaces else [],
+                        'rules': json.loads(row.rules) if row.rules else [],
+                        'rule_type': row.rule_type,
+                        'rule_config': json.loads(row.rule_config) if row.rule_config else {},
+                        'priority': row.priority if row.priority is not None else 100,
+                        'status': row.status if row.status is not None else 1,
+                        'created_by': row.created_by,
+                        'create_time': row.create_time.isoformat(),
+                        'update_time': row.update_time.isoformat()
+                    })
+                return policies
+        except Exception as e:
+            logger.error(f"获取所有策略失败: {str(e)}")
+            return []
+    
+    async def get_policies_by_namespace(self, namespace_id: int, policy_type: str = None) -> List[Dict[str, Any]]:
+        """获取命名空间下的所有策略"""
+        try:
+            async with self.get_session() as session:
+                stmt = select(self.policies).where(
+                    self.policies.c.namespace_id == namespace_id,
+                    (self.policies.c.status == 1) | (self.policies.c.status.is_(None))
+                )
+                
+                if policy_type:
+                    stmt = stmt.where(self.policies.c.policy_type == policy_type)
+                
+                stmt = stmt.order_by(self.policies.c.priority.asc())
+                
+                result = await session.execute(stmt)
+                rows = result.fetchall()
+                
+                policies = []
+                for row in rows:
+                    policies.append({
+                        'policy_id': row.policy_id,
+                        'policy_name': row.policy_name,
+                        'policy_type': row.policy_type,
+                        'description': row.description,
+                        'namespace_id': row.namespace_id,
+                        'namespaces': json.loads(row.namespaces) if row.namespaces else [],
+                        'rules': json.loads(row.rules) if row.rules else [],
+                        'rule_type': row.rule_type,
+                        'rule_config': json.loads(row.rule_config) if row.rule_config else {},
+                        'priority': row.priority if row.priority is not None else 100,
+                        'status': row.status if row.status is not None else 1,
+                        'created_by': row.created_by,
+                        'create_time': row.create_time.isoformat(),
+                        'update_time': row.update_time.isoformat()
+                    })
+                return policies
+        except Exception as e:
+            logger.error(f"获取命名空间策略失败: {str(e)}")
+            return []
+    
+    async def update_policy(self, policy_id: int, policy_data: Dict[str, Any]) -> bool:
+        """更新策略"""
+        try:
+            async with self.get_session() as session:
+                stmt = update(self.policies).where(
+                    self.policies.c.policy_id == policy_id
+                ).values(
+                    policy_name=policy_data.get('policy_name'),
+                    policy_type=policy_data.get('policy_type'),
+                    description=policy_data.get('description'),
+                    namespace_id=policy_data.get('namespace_id'),
+                    namespaces=json.dumps(policy_data.get('namespaces', [])) if 'namespaces' in policy_data else None,
+                    rules=json.dumps(policy_data.get('rules', [])) if 'rules' in policy_data else None,
+                    rule_type=policy_data.get('rule_type'),
+                    rule_config=json.dumps(policy_data['rule_config']) if 'rule_config' in policy_data and isinstance(policy_data['rule_config'], dict) else policy_data.get('rule_config'),
+                    priority=policy_data.get('priority', 100) if 'priority' in policy_data else None,
+                    status=policy_data.get('status', 1) if 'status' in policy_data else None,
+                    update_time=datetime.now()
+                )
+                
+                await session.execute(stmt)
+                await session.commit()
+                return True
+        except Exception as e:
+            logger.error(f"更新策略失败: {str(e)}")
+            return False
+    
+    async def delete_policy(self, policy_id: int) -> bool:
+        """删除策略（硬删除）"""
+        try:
+            async with self.get_session() as session:
+                stmt = self.policies.delete().where(
+                    self.policies.c.policy_id == policy_id
+                )
+                
+                await session.execute(stmt)
+                await session.commit()
+                return True
+        except Exception as e:
+            logger.error(f"删除策略失败: {str(e)}")
+            return False

@@ -162,8 +162,40 @@ async def get_location(location_id: int):
 async def create_location(location_data: Dict[str, Any], current_user: Dict = Depends(get_current_user)):
     """创建路由规则 - 适配新前端数据格式"""
     try:
-        # 暂时返回成功响应，实际实现中需要保存到数据库
-        location_id = 1  # 模拟生成的ID
+        db = get_db()
+        
+        # 获取上游服务器ID
+        upstream_servers = await db.get_all_upstream_servers()
+        upstream_name_to_id = {server['server_name']: server['server_id'] for server in upstream_servers}
+        upstream_id = upstream_name_to_id.get(location_data.get('upstream'))
+        
+        if not upstream_id:
+            raise HTTPException(status_code=400, detail=f"上游服务器 '{location_data.get('upstream')}' 不存在")
+        
+        # 转换前端数据格式到数据库格式
+        create_data = {
+            "path": location_data.get("path", ""),
+            "upstream_id": upstream_id,
+            "proxy_cache": location_data.get("proxy_cache", False),
+            "proxy_buffering": location_data.get("proxy_buffering", False),
+            "proxy_pass": f"http://{location_data.get('upstream')}{location_data.get('path', '')}",
+            "is_regex": location_data.get("is_regex", False),
+            "limit_req_config": {
+                "enabled": True,
+                "zone": "llm",
+                "burst": 20,
+                "nodelay": True
+            },
+            "sse_support": location_data.get("sse_support", False),
+            "chunked_transfer": location_data.get("chunked_transfer", False),
+            "matcher_type": "path",
+            "priority": location_data.get("priority", 100),
+            "status": 1,  # 默认创建为启用状态
+            "created_by": 1  # 暂时硬编码为管理员
+        }
+        
+        # 创建路由规则
+        location_id = await db.create_location_rule(create_data)
         
         logger.info(f"路由规则创建成功，location_id={location_id}")
         return {

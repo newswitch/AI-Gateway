@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Card, Row, Col, Button, Typography, Statistic, Tag, Space, Table, 
-  Select, Modal, Form, Input, Avatar, Tabs, message, Progress
+  Select, Modal, Form, Input, Avatar, Tabs, message, Progress, Divider, InputNumber, Popconfirm
 } from 'antd';
 import {
   Chart as ChartJS,
@@ -19,7 +19,7 @@ import {
 import { Doughnut, Line } from 'react-chartjs-2';
 import { 
   PlusOutlined, UploadOutlined, EyeOutlined, EditOutlined, DeleteOutlined,
-  ReloadOutlined, PoweroffOutlined, DownloadOutlined, SyncOutlined,
+  ReloadOutlined, PoweroffOutlined,
   CheckCircleOutlined, WarningOutlined,
   PlayCircleOutlined, LinkOutlined, AppstoreOutlined,
   DatabaseOutlined, LineChartOutlined,
@@ -49,20 +49,24 @@ interface Namespace {
   id: string;
   code: string;
   name: string;
+  description?: string;
   owner: {
     name: string;
     avatar: string;
   };
-  defaultUpstream: string;
-  qps: number;
-  concurrency: number;
-  quota: string;
-  maxSize: string;
-  timeout: string;
   status: 'enabled' | 'disabled';
-  quotaWarning?: boolean;
   createdAt: string;
   updatedAt: string;
+  matcher?: {
+    matcher_id: string;
+    matcher_name: string;
+    matcher_type: 'header' | 'body';
+    match_field: string;
+    match_operator: string;
+    match_value: string;
+    priority: number;
+    status: number;
+  };
 }
 
 interface RouteRule {
@@ -76,10 +80,14 @@ interface RouteRule {
 
 const NamespaceManagement: React.FC = () => {
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
+  const [isViewModalVisible, setIsViewModalVisible] = useState(false);
+  const [isEditModalVisible, setIsEditModalVisible] = useState(false);
+  const [selectedNamespace, setSelectedNamespace] = useState<Namespace | null>(null);
   const [selectedOwner, setSelectedOwner] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [searchKeyword, setSearchKeyword] = useState('');
   const [form] = Form.useForm();
+  const [editForm] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [namespaces, setNamespaces] = useState<Namespace[]>([]);
   const [pagination, setPagination] = useState({
@@ -99,11 +107,15 @@ const NamespaceManagement: React.FC = () => {
   // 数据加载函数
   const loadNamespaces = async (page: number = 1, size: number = 10) => {
     try {
+      console.log('[NamespaceManagement] 开始加载命名空间数据...', { page, size });
       setLoading(true);
       const response = await namespaceApi.getNamespaces(page, size);
+      console.log('[NamespaceManagement] 命名空间API响应:', response);
+      
       if (response.code === 200) {
         // API返回格式: {data: {items: [...], total: 3, page: 1, size: 10, pages: 1}}
         const data = response.data?.items || response.data || [];
+        console.log('[NamespaceManagement] 解析后的命名空间数据:', data);
         setNamespaces(Array.isArray(data) ? data : []);
         
         // 保存分页信息
@@ -115,12 +127,19 @@ const NamespaceManagement: React.FC = () => {
             pages: response.data.pages || 1
           });
         }
+        console.log('[NamespaceManagement] 命名空间数据加载成功');
       } else {
-        message.error('加载命名空间失败');
+        console.error('[NamespaceManagement] API返回错误:', response);
+        message.error(`加载命名空间失败: ${response.message || '未知错误'}`);
       }
     } catch (error: any) {
-      message.error('加载命名空间失败');
-      console.error('Load namespaces error:', error);
+      console.error('[NamespaceManagement] 加载命名空间异常:', error);
+      console.error('[NamespaceManagement] 错误详情:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+      message.error(`加载命名空间失败: ${error.message || '网络错误'}`);
       // 确保在错误情况下设置空数组
       setNamespaces([]);
     } finally {
@@ -210,36 +229,30 @@ const NamespaceManagement: React.FC = () => {
   // 计算统计数据
   const totalNamespaces = namespaces.length;
   const enabledNamespaces = namespaces.filter(ns => ns.status === 'enabled').length;
-  const quotaWarningNamespaces = namespaces.filter(ns => ns.quotaWarning).length;
-  const noUpstreamNamespaces = namespaces.filter(ns => !ns.defaultUpstream || ns.defaultUpstream === '未绑定').length;
   const enabledRate = totalNamespaces > 0 ? ((enabledNamespaces / totalNamespaces) * 100).toFixed(1) : '0.0';
 
   // 状态分布图表数据
   const statusChartData = statusDistributionData ? {
-    labels: statusDistributionData.labels || ['启用', '禁用', '限额告警', '无上游绑定'],
+    labels: statusDistributionData.labels || ['启用', '禁用'],
     datasets: [
       {
-        data: statusDistributionData.data || [enabledNamespaces, totalNamespaces - enabledNamespaces, quotaWarningNamespaces, noUpstreamNamespaces],
+        data: statusDistributionData.data || [enabledNamespaces, totalNamespaces - enabledNamespaces],
         backgroundColor: [
           '#00B42A',
-          '#D9D9D9', 
-          '#FF7D00',
-          '#F53F3F'
+          '#D9D9D9'
         ],
         borderWidth: 0,
         cutout: '60%'
       }
     ]
   } : {
-    labels: ['启用', '禁用', '限额告警', '无上游绑定'],
+    labels: ['启用', '禁用'],
     datasets: [
       {
-        data: [enabledNamespaces, totalNamespaces - enabledNamespaces, quotaWarningNamespaces, noUpstreamNamespaces],
+        data: [enabledNamespaces, totalNamespaces - enabledNamespaces],
         backgroundColor: [
           '#00B42A',
-          '#D9D9D9', 
-          '#FF7D00',
-          '#F53F3F'
+          '#D9D9D9'
         ],
         borderWidth: 0,
         cutout: '60%'
@@ -412,39 +425,6 @@ const NamespaceManagement: React.FC = () => {
       )
     },
     {
-      title: '默认上游',
-      dataIndex: 'defaultUpstream',
-      key: 'defaultUpstream',
-      render: (text: string) => (
-        <Text style={{ color: text === '未绑定' ? '#F53F3F' : 'inherit' }}>
-          {text}
-        </Text>
-      )
-    },
-    {
-      title: 'QPS/并发/配额',
-      key: 'quotas',
-      render: (_: any, record: Namespace) => (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <Text style={{ fontSize: '12px' }}>QPS: {record.qps}</Text>
-          <Text style={{ fontSize: '12px' }}>并发: {record.concurrency}</Text>
-          <Text style={{ fontSize: '12px', color: record.quotaWarning ? '#FF7D00' : 'inherit' }}>
-            配额: {record.quota}{record.quotaWarning ? '(告警)' : ''}
-          </Text>
-        </div>
-      )
-    },
-    {
-      title: '请求大小/超时',
-      key: 'limits',
-      render: (_: any, record: Namespace) => (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <Text style={{ fontSize: '12px' }}>最大: {record.maxSize}</Text>
-          <Text style={{ fontSize: '12px' }}>超时: {record.timeout}</Text>
-        </div>
-      )
-    },
-    {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
@@ -464,6 +444,26 @@ const NamespaceManagement: React.FC = () => {
       )
     },
     {
+      title: '消息匹配器',
+      key: 'matcher',
+      render: (_: any, record: Namespace) => {
+        const matcher = record.matcher;
+        if (!matcher) {
+          return <Text type="secondary">未配置</Text>;
+        }
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <Tag color="blue" style={{ fontSize: '11px' }}>
+              {matcher.matcher_type === 'header' ? '请求头' : '请求体'}
+            </Tag>
+            <Text style={{ fontSize: '12px' }}>
+              {matcher.match_field} {matcher.match_operator} "{matcher.match_value}"
+            </Text>
+          </div>
+        );
+      }
+    },
+    {
       title: '创建/更新时间',
       key: 'dates',
       render: (_: any, record: Namespace) => (
@@ -476,41 +476,36 @@ const NamespaceManagement: React.FC = () => {
     {
       title: '操作',
       key: 'actions',
+      width: 120,
       render: (_: any, record: Namespace) => (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <Button type="link" icon={<EyeOutlined />} size="small" style={{ padding: 0 }}>
-            查看
-          </Button>
-          <Button type="link" icon={<EditOutlined />} size="small" style={{ padding: 0 }}>
+        <Space size="small">
+          <Button 
+            type="link" 
+            size="small" 
+            icon={<EditOutlined />}
+            onClick={() => handleEditNamespace(record)}
+          >
             编辑
           </Button>
-          <Button 
-            type="link" 
-            icon={record.status === 'enabled' ? <PoweroffOutlined /> : <CheckCircleOutlined />} 
-            size="small" 
-            style={{ padding: 0, color: record.status === 'enabled' ? '#FF7D00' : '#00B42A' }}
-            onClick={() => handleToggleStatus(record.id, record.status)}
+          <Popconfirm
+            title="确定要删除这个命名空间吗？"
+            description="删除后无法恢复，同时会删除相关的匹配器和策略。"
+            onConfirm={() => handleDeleteNamespace(record.id)}
+            okText="确定"
+            cancelText="取消"
           >
-            {record.status === 'enabled' ? '禁用' : '启用'}
-          </Button>
           <Button 
             type="link" 
-            icon={<DeleteOutlined />} 
             size="small" 
-            style={{ padding: 0, color: '#F53F3F' }}
-            onClick={() => handleDeleteNamespace(record.id)}
+              danger
+              icon={<DeleteOutlined />}
           >
             删除
           </Button>
-          <Button type="link" icon={<DownloadOutlined />} size="small" style={{ padding: 0 }}>
-            导出
-          </Button>
-          <Button type="link" icon={<SyncOutlined />} size="small" style={{ padding: 0 }}>
-            同步
-          </Button>
-        </div>
+          </Popconfirm>
+        </Space>
       )
-    }
+    },
   ];
 
   const routeColumns = [
@@ -600,11 +595,17 @@ const NamespaceManagement: React.FC = () => {
         name: values.name,
         description: values.description || '',
         owner: values.owner || 'admin',
-        status: 'enabled'
+        status: 'enabled',
+        // 传递匹配器配置
+        matcherType: values.matcherType,
+        matchField: values.matchField,
+        matchOperator: values.matchOperator,
+        matchValue: values.matchValue,
+        priority: values.priority
       });
       
       if (response.code === 200) {
-        message.success('命名空间创建成功');
+        message.success('命名空间和消息匹配器创建成功');
       setIsAddModalVisible(false);
       form.resetFields();
         // 重新加载数据
@@ -624,6 +625,61 @@ const NamespaceManagement: React.FC = () => {
   };
 
   // 删除命名空间
+  const handleEditNamespace = (namespace: Namespace) => {
+    console.log('编辑命名空间:', namespace);
+    setSelectedNamespace(namespace);
+    setIsEditModalVisible(true);
+    
+    // 设置表单初始值
+    form.setFieldsValue({
+      code: namespace.code,
+      name: namespace.name,
+      description: namespace.description,
+      status: namespace.status,
+      matcherType: namespace.matcher?.matcher_type || 'header',
+      matchField: namespace.matcher?.match_field || 'channelcode',
+      matchOperator: namespace.matcher?.match_operator || 'equals',
+      matchValue: namespace.matcher?.match_value || namespace.code,
+      priority: namespace.matcher?.priority || 100
+    });
+  };
+
+  const handleUpdateNamespace = async () => {
+    try {
+      const values = await form.validateFields();
+      
+      if (!selectedNamespace) return;
+      
+      // 调用API更新命名空间
+      const response = await namespaceApi.updateNamespace(selectedNamespace.id, {
+        code: values.code,
+        name: values.name,
+        description: values.description || '',
+        status: 'enabled',
+        // 传递匹配器配置
+        matcherType: values.matcherType,
+        matchField: values.matchField,
+        matchOperator: values.matchOperator,
+        matchValue: values.matchValue,
+        priority: values.priority
+      });
+      
+      if (response.code === 200) {
+        message.success('命名空间更新成功');
+        setIsEditModalVisible(false);
+        setSelectedNamespace(null);
+        form.resetFields();
+        // 重新加载数据
+        loadNamespaces();
+      } else {
+        message.error(response.message || '更新失败');
+      }
+    } catch (error) {
+      message.error('更新命名空间失败');
+      console.error('Update namespace error:', error);
+    }
+  };
+
   const handleDeleteNamespace = async (id: string) => {
     try {
       const response = await namespaceApi.deleteNamespace(id);
@@ -656,13 +712,61 @@ const NamespaceManagement: React.FC = () => {
     }
   };
 
+  // 查看命名空间详情
+  const handleViewNamespace = (namespace: Namespace) => {
+    setSelectedNamespace(namespace);
+    setIsViewModalVisible(true);
+  };
+
+
+  // 保存编辑
+  const handleEditSave = async () => {
+    try {
+      const values = await editForm.validateFields();
+      if (!selectedNamespace) return;
+
+      const response = await namespaceApi.updateNamespace(selectedNamespace.id, {
+        code: values.code,
+        name: values.name,
+        description: values.description || '',
+        status: values.status
+      });
+
+      if (response.code === 200) {
+        message.success('命名空间更新成功');
+        setIsEditModalVisible(false);
+        setSelectedNamespace(null);
+        editForm.resetFields();
+        loadNamespaces(); // 重新加载数据
+      } else {
+        message.error(response.message || '更新失败');
+      }
+    } catch (error) {
+      message.error('更新命名空间失败');
+      console.error('Update namespace error:', error);
+    }
+  };
+
+  // 关闭查看模态框
+  const handleViewModalCancel = () => {
+    setIsViewModalVisible(false);
+    setSelectedNamespace(null);
+  };
+
+  // 关闭编辑模态框
+  const handleEditModalCancel = () => {
+    setIsEditModalVisible(false);
+    setSelectedNamespace(null);
+    editForm.resetFields();
+  };
+
   return (
     <div style={{ padding: '24px', backgroundColor: '#f5f5f5', minHeight: '100vh' }}>
       {/* 页面标题 */}
       <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <Title level={2} style={{ margin: 0, color: '#1d2129' }}>命名空间管理</Title>
-          <Text style={{ color: '#86909c', fontSize: '14px' }}>管理和配置模型服务的命名空间及相关策略</Text>
+          <Text style={{ color: '#86909c', fontSize: '14px' }}>管理和配置模型服务的命名空间</Text>
         </div>
         <Space>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleAddNamespace}>
@@ -676,7 +780,7 @@ const NamespaceManagement: React.FC = () => {
 
       {/* 概览卡片 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        <Col xs={24} sm={12} lg={6}>
+        <Col xs={24} sm={12} lg={8}>
           <Card style={{ borderRadius: 12, boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
@@ -706,7 +810,7 @@ const NamespaceManagement: React.FC = () => {
           </Card>
         </Col>
 
-        <Col xs={24} sm={12} lg={6}>
+        <Col xs={24} sm={12} lg={8}>
           <Card style={{ borderRadius: 12, boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
@@ -736,47 +840,18 @@ const NamespaceManagement: React.FC = () => {
           </Card>
         </Col>
 
-        <Col xs={24} sm={12} lg={6}>
-          <Card style={{ borderRadius: 12, boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div>
-                <Text style={{ color: '#86909c', fontSize: '14px' }}>限额告警</Text>
-                <div style={{ marginTop: 8 }}>
-                  <Statistic value={quotaWarningNamespaces} valueStyle={{ fontSize: '24px', fontWeight: 'bold', color: '#1d2129' }} />
-                </div>
-                <div style={{ marginTop: 12, display: 'flex', alignItems: 'center' }}>
-                  <Tag color="orange" icon={<WarningOutlined />}>
-                    {quotaWarningNamespaces > 0 ? '需要关注' : '正常'}
-                  </Tag>
-                </div>
-              </div>
-              <div style={{
-                width: 48,
-                height: 48,
-                borderRadius: 8,
-                backgroundColor: 'rgba(255, 125, 0, 0.1)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#FF7D00'
-              }}>
-                <WarningOutlined style={{ fontSize: 20 }} />
-              </div>
-            </div>
-          </Card>
-        </Col>
 
-        <Col xs={24} sm={12} lg={6}>
+        <Col xs={24} sm={12} lg={8}>
           <Card style={{ borderRadius: 12, boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
-                <Text style={{ color: '#86909c', fontSize: '14px' }}>无上游绑定</Text>
+                <Text style={{ color: '#86909c', fontSize: '14px' }}>禁用中</Text>
                 <div style={{ marginTop: 8 }}>
-                  <Statistic value={noUpstreamNamespaces} valueStyle={{ fontSize: '24px', fontWeight: 'bold', color: '#1d2129' }} />
+                  <Statistic value={totalNamespaces - enabledNamespaces} valueStyle={{ fontSize: '24px', fontWeight: 'bold', color: '#1d2129' }} />
                 </div>
                 <div style={{ marginTop: 12, display: 'flex', alignItems: 'center' }}>
-                  <Tag color="red" icon={<LinkOutlined />}>
-                    {noUpstreamNamespaces > 0 ? '需要处理' : '全部已绑定'}
+                  <Tag color="red" icon={<PoweroffOutlined />}>
+                    {totalNamespaces - enabledNamespaces > 0 ? '需要处理' : '全部启用'}
                   </Tag>
                 </div>
               </div>
@@ -790,7 +865,7 @@ const NamespaceManagement: React.FC = () => {
                 justifyContent: 'center',
                 color: '#F53F3F'
               }}>
-                <LinkOutlined style={{ fontSize: 20 }} />
+                <PoweroffOutlined style={{ fontSize: 20 }} />
               </div>
             </div>
           </Card>
@@ -1434,39 +1509,248 @@ const NamespaceManagement: React.FC = () => {
       >
         <Form form={form} layout="vertical">
           <Form.Item label="命名空间代码" name="code" rules={[{ required: true, message: '请输入命名空间代码' }]}>
-            <Input />
+            <Input placeholder="例如: wechat" />
           </Form.Item>
           <Form.Item label="命名空间名称" name="name" rules={[{ required: true, message: '请输入命名空间名称' }]}>
-            <Input />
+            <Input placeholder="例如: 微信服务" />
           </Form.Item>
-          <Form.Item label="匹配字段来源" name="matchingFieldSource" rules={[{ required: true, message: '请选择匹配字段来源' }]}>
-            <Select placeholder="请选择匹配字段来源">
-              <Option value="header">报文头(Header)</Option>
-              <Option value="body">请求体(Body)</Option>
+          <Form.Item label="描述" name="description">
+            <Input.TextArea rows={3} placeholder="请输入命名空间描述" />
+          </Form.Item>
+          
+          <Divider orientation="left" style={{ margin: '20px 0 16px 0' }}>消息匹配器配置</Divider>
+          
+          <Form.Item 
+            label="匹配类型" 
+            name="matcherType" 
+            rules={[{ required: true, message: '请选择匹配类型' }]}
+            initialValue="header"
+          >
+            <Select placeholder="选择匹配类型">
+              <Option value="header">请求头匹配</Option>
+              <Option value="body">请求体匹配</Option>
             </Select>
           </Form.Item>
-          <Form.Item label="匹配字段名称" name="matchingFieldName" rules={[{ required: true, message: '请输入匹配字段名称' }]}>
-            <Input />
+          
+          <Form.Item 
+            label="匹配字段" 
+            name="matchField" 
+            rules={[{ required: true, message: '请输入匹配字段' }]}
+            initialValue="channelcode"
+          >
+            <Input placeholder="例如: channelcode, user-agent, x-channel" />
           </Form.Item>
-          <Form.Item label="匹配操作符" name="matchingOperator" rules={[{ required: true, message: '请选择匹配操作符' }]}>
-            <Select placeholder="请选择匹配操作符">
-              <Option value="equals">等于(=)</Option>
-              <Option value="not_equals">不等于(!=)</Option>
-              <Option value="greater_than">大于(&gt;)</Option>
-              <Option value="greater_than_equal">大于等于(&gt;=)</Option>
-              <Option value="less_than">小于(&lt;)</Option>
-              <Option value="less_than_equal">小于等于(&lt;=)</Option>
-              <Option value="contains">包含(contains)</Option>
-              <Option value="starts_with">开头匹配(starts_with)</Option>
-              <Option value="ends_with">结尾匹配(ends_with)</Option>
-              <Option value="regex">正则匹配(regex)</Option>
+          
+          <Form.Item 
+            label="匹配操作符" 
+            name="matchOperator" 
+            rules={[{ required: true, message: '请选择匹配操作符' }]}
+            initialValue="equals"
+          >
+            <Select placeholder="选择匹配操作符">
+              <Option value="equals">等于</Option>
+              <Option value="contains">包含</Option>
+              <Option value="regex">正则匹配</Option>
+              <Option value="in">包含在列表中</Option>
             </Select>
           </Form.Item>
-          <Form.Item label="匹配值" name="matchingValue" rules={[{ required: true, message: '请输入匹配值' }]}>
-            <Input />
+          
+          <Form.Item 
+            label="匹配值" 
+            name="matchValue" 
+            rules={[{ required: true, message: '请输入匹配值' }]}
+          >
+            <Input placeholder="例如: wechat, alipay, web" />
+          </Form.Item>
+          
+          <Form.Item 
+            label="优先级" 
+            name="priority" 
+            rules={[{ required: true, message: '请设置优先级' }]}
+            initialValue={100}
+          >
+            <InputNumber 
+              min={1} 
+              max={1000} 
+              placeholder="1-1000，数字越大优先级越高" 
+              style={{ width: '100%' }}
+            />
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* 编辑命名空间模态框 */}
+      <Modal
+        title="编辑命名空间"
+        open={isEditModalVisible}
+        onOk={handleUpdateNamespace}
+        onCancel={() => {
+          setIsEditModalVisible(false);
+          setSelectedNamespace(null);
+          form.resetFields();
+        }}
+        width={600}
+      >
+        <Form form={form} layout="vertical">
+          <Form.Item label="命名空间代码" name="code" rules={[{ required: true, message: '请输入命名空间代码' }]}>
+            <Input placeholder="例如: wechat" />
+          </Form.Item>
+          <Form.Item label="命名空间名称" name="name" rules={[{ required: true, message: '请输入命名空间名称' }]}>
+            <Input placeholder="例如: 微信服务" />
+          </Form.Item>
+          <Form.Item label="描述" name="description">
+            <Input.TextArea rows={3} placeholder="请输入命名空间描述" />
+          </Form.Item>
+          
+          <Form.Item 
+            label="状态" 
+            name="status" 
+            rules={[{ required: true, message: '请选择状态' }]}
+          >
+            <Select>
+              <Option value="enabled">启用</Option>
+              <Option value="disabled">禁用</Option>
+            </Select>
+          </Form.Item>
+          
+          <Divider orientation="left" style={{ margin: '20px 0 16px 0' }}>消息匹配器配置</Divider>
+          
+          <Form.Item 
+            label="匹配类型" 
+            name="matcherType" 
+            rules={[{ required: true, message: '请选择匹配类型' }]}
+          >
+            <Select placeholder="选择匹配类型">
+              <Option value="header">请求头匹配</Option>
+              <Option value="body">请求体匹配</Option>
+            </Select>
+          </Form.Item>
+          
+          <Form.Item 
+            label="匹配字段" 
+            name="matchField" 
+            rules={[{ required: true, message: '请输入匹配字段' }]}
+          >
+            <Input placeholder="例如: channelcode, user-agent, x-channel" />
+          </Form.Item>
+          
+          <Form.Item 
+            label="匹配操作符" 
+            name="matchOperator" 
+            rules={[{ required: true, message: '请选择匹配操作符' }]}
+          >
+            <Select placeholder="选择匹配操作符">
+              <Option value="equals">等于</Option>
+              <Option value="contains">包含</Option>
+              <Option value="regex">正则匹配</Option>
+              <Option value="in">包含在列表中</Option>
+            </Select>
+          </Form.Item>
+          
+          <Form.Item 
+            label="匹配值" 
+            name="matchValue" 
+            rules={[{ required: true, message: '请输入匹配值' }]}
+          >
+            <Input placeholder="例如: wechat, alipay, web" />
+          </Form.Item>
+          
+          <Form.Item 
+            label="优先级" 
+            name="priority" 
+            rules={[{ required: true, message: '请设置优先级' }]}
+          >
+            <InputNumber 
+              min={1} 
+              max={1000} 
+              placeholder="1-1000，数字越大优先级越高" 
+              style={{ width: '100%' }}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 查看命名空间详情模态框 */}
+      <Modal
+        title="命名空间详情"
+        open={isViewModalVisible}
+        onCancel={handleViewModalCancel}
+        footer={[
+          <Button key="close" onClick={handleViewModalCancel}>
+            关闭
+          </Button>
+        ]}
+        width={800}
+      >
+        {selectedNamespace && (
+          <div style={{ padding: '20px 0' }}>
+            <Row gutter={[16, 16]}>
+              <Col span={12}>
+                <Card size="small" title="基本信息">
+                  <div style={{ marginBottom: 12 }}>
+                    <Text strong>命名空间代码：</Text>
+                    <Text code style={{ marginLeft: 8 }}>{selectedNamespace.code}</Text>
+                  </div>
+                  <div style={{ marginBottom: 12 }}>
+                    <Text strong>命名空间名称：</Text>
+                    <Text style={{ marginLeft: 8 }}>{selectedNamespace.name}</Text>
+                  </div>
+                  <div style={{ marginBottom: 12 }}>
+                    <Text strong>状态：</Text>
+                    <Tag color={selectedNamespace.status === 'enabled' ? 'green' : 'red'} style={{ marginLeft: 8 }}>
+                      {selectedNamespace.status === 'enabled' ? '启用' : '禁用'}
+                    </Tag>
+                  </div>
+                  <div style={{ marginBottom: 12 }}>
+                    <Text strong>负责人：</Text>
+                    <div style={{ display: 'flex', alignItems: 'center', marginLeft: 8, marginTop: 4 }}>
+                      <Avatar src={selectedNamespace.owner.avatar} size={20} style={{ marginRight: 8 }} />
+                      <Text>{selectedNamespace.owner.name}</Text>
+                    </div>
+                  </div>
+                </Card>
+              </Col>
+              <Col span={12}>
+                <Card size="small" title="基本信息">
+                  <div style={{ marginBottom: 12 }}>
+                    <Text strong>描述：</Text>
+                    <Text style={{ marginLeft: 8, color: selectedNamespace.description ? 'inherit' : '#8C8C8C' }}>
+                      {selectedNamespace.description || '暂无描述'}
+                    </Text>
+                  </div>
+                </Card>
+              </Col>
+            </Row>
+            
+
+            <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+              <Col span={12}>
+                <Card size="small" title="时间信息">
+                  <div style={{ marginBottom: 12 }}>
+                    <Text strong>创建时间：</Text>
+                    <Text style={{ marginLeft: 8 }}>{selectedNamespace.createdAt}</Text>
+                  </div>
+                  <div style={{ marginBottom: 12 }}>
+                    <Text strong>更新时间：</Text>
+                    <Text style={{ marginLeft: 8 }}>{selectedNamespace.updatedAt}</Text>
+                  </div>
+                </Card>
+              </Col>
+              <Col span={12}>
+                <Card size="small" title="状态信息">
+                  <div style={{ marginBottom: 12 }}>
+                    <Text strong>当前状态：</Text>
+                    <Tag color={selectedNamespace.status === 'enabled' ? 'green' : 'red'} style={{ marginLeft: 8 }}>
+                      {selectedNamespace.status === 'enabled' ? '启用' : '禁用'}
+                    </Tag>
+                  </div>
+                </Card>
+              </Col>
+            </Row>
+          </div>
+        )}
+      </Modal>
+
     </div>
   );
 };

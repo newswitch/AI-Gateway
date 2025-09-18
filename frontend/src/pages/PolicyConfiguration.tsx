@@ -9,7 +9,7 @@ import {
   DeleteOutlined, ReloadOutlined, ArrowUpOutlined,
   UploadOutlined, LineChartOutlined, PieChartOutlined
 } from '@ant-design/icons';
-import { policyApi } from '../services/api';
+import { policyApi, namespaceApi } from '../services/api';
 
 // Chart.js imports
 import {
@@ -48,9 +48,11 @@ interface Policy {
   id: string;
   name: string;
   type: string;
-  namespaces: string[];
+  namespaces: Array<{id: string; code: string; name: string}>;
   rules: string[];
+  config: any;
   status: 'enabled' | 'disabled';
+  priority: number;
   updateTime: string;
 }
 
@@ -66,6 +68,8 @@ const PolicyConfiguration: React.FC = () => {
   const [selectedType, setSelectedType] = useState('all');
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [isCopyModalVisible, setIsCopyModalVisible] = useState(false);
+  const [isEditModalVisible, setIsEditModalVisible] = useState(false);
+  const [editingPolicy, setEditingPolicy] = useState<Policy | null>(null);
   const [selectedPolicyType, setSelectedPolicyType] = useState('message-matching');
   const [form] = Form.useForm();
 
@@ -73,6 +77,9 @@ const PolicyConfiguration: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [policyTemplates, setPolicyTemplates] = useState<PolicyTemplate[]>([]);
+  
+  // 命名空间选项状态
+  const [namespaceOptions, setNamespaceOptions] = useState<Array<{value: string, label: string}>>([]);
   
   // 图表数据状态
   const [rateLimitTrendData, setRateLimitTrendData] = useState<any>(null);
@@ -93,7 +100,12 @@ const PolicyConfiguration: React.FC = () => {
       if (policiesResponse.code === 200) {
         // API返回格式: {data: {items: [...]}}
         const data = policiesResponse.data?.items || policiesResponse.data || [];
-        setPolicies(Array.isArray(data) ? data : []);
+        // 解析config字段，如果是字符串则转换为对象
+        const processedData = Array.isArray(data) ? data.map(policy => ({
+          ...policy,
+          config: typeof policy.config === 'string' ? JSON.parse(policy.config || '{}') : policy.config
+        })) : [];
+        setPolicies(processedData);
       }
       if (templatesResponse.code === 200) {
         // API返回格式: {data: {items: [...]}}
@@ -105,6 +117,40 @@ const PolicyConfiguration: React.FC = () => {
       console.error('Load policy data error:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 加载命名空间列表
+  const loadNamespaces = async () => {
+    try {
+      console.log('开始加载命名空间...');
+      const response = await namespaceApi.getNamespaces(1, 100); // 获取所有命名空间
+      console.log('命名空间API响应:', response);
+      
+      if (response.code === 200) {
+        const data = response.data?.items || response.data || [];
+        console.log('命名空间数据:', data);
+        
+        const options = data.map((ns: any, index: number) => ({
+          value: ns.id || ns.namespace_id || ns.code || ns.name,
+          label: ns.name || ns.code,
+          key: `${ns.id || ns.namespace_id || ns.code || ns.name}-${index}` // 确保key唯一
+        }));
+        console.log('命名空间选项:', options);
+        // 检查是否有重复的key
+        const keys = options.map(opt => opt.key);
+        const uniqueKeys = new Set(keys);
+        if (keys.length !== uniqueKeys.size) {
+          console.warn('发现重复的key:', keys.filter((key, index) => keys.indexOf(key) !== index));
+        }
+        setNamespaceOptions(options);
+      } else {
+        console.error('API返回错误:', response);
+        message.error(`加载命名空间失败: ${response.message || '未知错误'}`);
+      }
+    } catch (error: any) {
+      console.error('Load namespaces error:', error);
+      message.error(`加载命名空间失败: ${error.message || '网络错误'}`);
     }
   };
 
@@ -182,6 +228,7 @@ const PolicyConfiguration: React.FC = () => {
   // 组件挂载时加载数据
   useEffect(() => {
     loadPolicyData();
+    loadNamespaces();
     loadRateLimitTrend();
     loadPolicyTypeDistribution();
   }, []);
@@ -209,11 +256,40 @@ const PolicyConfiguration: React.FC = () => {
   // 创建策略
   const handleCreatePolicy = async (values: any) => {
     try {
+      // 获取选中的命名空间ID（现在只选择一个）
+      const namespaceId = values.namespaces ? 
+        (typeof values.namespaces === 'string' ? values.namespaces : values.namespaces.id) : null;
+      
+      // 构建配置对象
+      const config: any = {};
+      if (values.type === 'token-limit') {
+        config.maxInputTokenCount = values.maxInputTokenCount;
+        config.maxOutputTokenCount = values.maxOutputTokenCount;
+        config.enableTimeWindow = values.enableTimeWindow;
+        config.timeWindowMinutes = values.timeWindowMinutes;
+        config.windowMaxTokenCount = values.windowMaxTokenCount;
+      } else if (values.type === 'concurrency-limit') {
+        config.maxConcurrentConnections = values.maxConcurrentConnections;
+      } else if (values.type === 'qps-limit') {
+        config.maxQPS = values.maxQPS;
+        config.timeWindow = values.timeWindow;
+      } else if (values.type === 'message-matching') {
+        config.matchingFieldSource = values.matchingFieldSource;
+        config.matchingFieldName = values.matchingFieldName;
+        config.matchingOperator = values.matchingOperator;
+        config.matchingValue = values.matchingValue;
+        config.matchingAction = values.matchingAction;
+      }
+      
       const response = await policyApi.createPolicy({
         name: values.name,
         type: values.type,
+        description: values.description || '',
+        namespace_id: namespaceId,
         namespaces: values.namespaces || [],
         rules: values.rules || [],
+        config: config,
+        priority: values.priority || 100,
         status: 'enabled'
       });
       
@@ -247,6 +323,119 @@ const PolicyConfiguration: React.FC = () => {
     }
   };
 
+  // 编辑策略
+  const handleEditPolicy = (policy: Policy) => {
+    console.log('编辑策略，接收到的数据:', policy);
+    setEditingPolicy(policy);
+    setSelectedPolicyType(policy.type);
+    
+    // 构建表单初始值
+    const formValues: any = {
+      name: policy.name,
+      type: policy.type,
+      namespaces: policy.namespaces && policy.namespaces.length > 0 ? policy.namespaces[0].id : null,
+      rules: policy.rules,
+      enabled: policy.status === 'enabled',
+      priority: Number(policy.priority) || 100
+    };
+    console.log('设置表单初始值:', formValues);
+    
+    // 根据策略类型加载配置信息
+    if (policy.config) {
+      const config = policy.config;
+      if (policy.type === 'token-limit') {
+        formValues.maxInputTokenCount = config.maxInputTokenCount;
+        formValues.maxOutputTokenCount = config.maxOutputTokenCount;
+        formValues.enableTimeWindow = config.enableTimeWindow;
+        formValues.timeWindowMinutes = config.timeWindowMinutes;
+        formValues.windowMaxTokenCount = config.windowMaxTokenCount;
+      } else if (policy.type === 'concurrency-limit') {
+        formValues.maxConcurrentConnections = config.maxConcurrentConnections;
+      } else if (policy.type === 'qps-limit') {
+        formValues.maxQPS = config.maxQPS;
+        formValues.timeWindow = config.timeWindow;
+      } else if (policy.type === 'message-matching') {
+        formValues.matchingFieldSource = config.matchingFieldSource;
+        formValues.matchingFieldName = config.matchingFieldName;
+        formValues.matchingOperator = config.matchingOperator;
+        formValues.matchingValue = config.matchingValue;
+        formValues.matchingAction = config.matchingAction;
+      }
+    }
+    
+    form.setFieldsValue(formValues);
+    setIsEditModalVisible(true);
+  };
+
+  // 更新策略
+  const handleUpdatePolicy = async (values: any) => {
+    if (!editingPolicy) return;
+    
+    try {
+      // 获取选中的命名空间ID（现在只选择一个）
+      const namespaceId = values.namespaces ? 
+        (typeof values.namespaces === 'string' ? values.namespaces : values.namespaces.id) : null;
+      
+      // 构建配置对象
+      const config: any = {};
+      if (values.type === 'token-limit') {
+        config.maxInputTokenCount = values.maxInputTokenCount;
+        config.maxOutputTokenCount = values.maxOutputTokenCount;
+        config.enableTimeWindow = values.enableTimeWindow;
+        config.timeWindowMinutes = values.timeWindowMinutes;
+        config.windowMaxTokenCount = values.windowMaxTokenCount;
+      } else if (values.type === 'concurrency-limit') {
+        config.maxConcurrentConnections = values.maxConcurrentConnections;
+      } else if (values.type === 'qps-limit') {
+        config.maxQPS = values.maxQPS;
+        config.timeWindow = values.timeWindow;
+      } else if (values.type === 'message-matching') {
+        config.matchingFieldSource = values.matchingFieldSource;
+        config.matchingFieldName = values.matchingFieldName;
+        config.matchingOperator = values.matchingOperator;
+        config.matchingValue = values.matchingValue;
+        config.matchingAction = values.matchingAction;
+      }
+      
+      const updateData = {
+        name: values.name,
+        type: values.type,
+        description: values.description || '',
+        namespace_id: namespaceId,
+        namespaces: values.namespaces || [],
+        rules: values.rules || [],
+        config: config,
+        priority: Number(values.priority) || 100,
+        status: values.enabled ? 'enabled' : 'disabled'
+      };
+      
+      console.log('前端发送的更新数据:', updateData);
+      console.log('表单 values:', values);
+      console.log('values.priority:', values.priority);
+      console.log('values.status:', values.status);
+      console.log('values.enabled:', values.enabled);
+      console.log('values 的所有键:', Object.keys(values));
+      console.log('values.priority 类型:', typeof values.priority);
+      console.log('values.priority 值:', values.priority);
+      console.log('values.priority || 100 结果:', values.priority || 100);
+      
+      const response = await policyApi.updatePolicy(editingPolicy.id, updateData);
+      
+      if (response.code === 200) {
+        message.success('策略更新成功');
+        setIsEditModalVisible(false);
+        setEditingPolicy(null);
+        form.resetFields();
+        loadPolicyData();
+      } else {
+        message.error(response.message || '更新失败');
+      }
+    } catch (error) {
+      message.error('更新策略失败');
+      console.error('Update policy error:', error);
+    }
+  };
+
   // 更新策略状态
   const handleTogglePolicyStatus = async (policyId: string, currentStatus: string) => {
     try {
@@ -273,7 +462,10 @@ const PolicyConfiguration: React.FC = () => {
   const handleModalCancel = () => {
     setIsAddModalVisible(false);
     setIsCopyModalVisible(false);
+    setIsEditModalVisible(false);
+    setEditingPolicy(null);
     form.resetFields();
+    form.setFieldsValue({ priority: 1, enabled: true });
     setSelectedPolicyType('message-matching');
   };
 
@@ -297,6 +489,44 @@ const PolicyConfiguration: React.FC = () => {
       case 'dev': return 'green';
       case 'test': return 'orange';
       default: return 'default';
+    }
+  };
+
+  // 根据策略类型和配置生成规则描述
+  const generateRuleDescription = (policy: Policy) => {
+    if (!policy.config) {
+      return policy.rules && policy.rules.length > 0 ? policy.rules[0] : '无规则';
+    }
+
+    const config = policy.config;
+    
+    switch (policy.type) {
+      case 'token-limit':
+        const maxInput = config.maxInputTokenCount || '未设置';
+        const maxOutput = config.maxOutputTokenCount || '未设置';
+        const timeWindow = config.enableTimeWindow ? `，时间窗口${config.timeWindowMinutes}分钟` : '';
+        const windowMax = config.enableTimeWindow ? `，窗口内最多${config.windowMaxTokenCount}个Token` : '';
+        return `输入${maxInput}，输出${maxOutput}${timeWindow}${windowMax}`;
+        
+      case 'concurrency-limit':
+        const maxConcurrent = config.maxConcurrentConnections || '未设置';
+        return `最大并发${maxConcurrent}个连接`;
+        
+      case 'qps-limit':
+        const maxQPS = config.maxQPS || '未设置';
+        const timeWindowSec = config.timeWindow || '未设置';
+        return `每秒最多${maxQPS}个请求，${timeWindowSec}秒窗口`;
+        
+      case 'message-matching':
+        const fieldSource = config.matchingFieldSource || '未设置';
+        const fieldName = config.matchingFieldName || '未设置';
+        const operator = config.matchingOperator || '未设置';
+        const value = config.matchingValue || '未设置';
+        const action = config.matchingAction || '未设置';
+        return `${fieldSource}.${fieldName} ${operator} "${value}" → ${action}`;
+        
+      default:
+        return policy.rules && policy.rules.length > 0 ? policy.rules[0] : '无规则';
     }
   };
 
@@ -332,10 +562,10 @@ const PolicyConfiguration: React.FC = () => {
       
       <Form.Item name="matchingFieldSource" label="匹配字段来源" rules={[{ required: true, message: '请选择匹配字段来源' }]}>
         <Select placeholder="选择匹配字段的来源">
-          <Option value="header">报文头(Header)</Option>
-          <Option value="body">请求体(Body)</Option>
-          <Option value="query">查询参数(Query)</Option>
-          <Option value="path">路径参数(Path)</Option>
+          <Option key="header" value="header">报文头(Header)</Option>
+          <Option key="body" value="body">请求体(Body)</Option>
+          <Option key="query" value="query">查询参数(Query)</Option>
+          <Option key="path" value="path">路径参数(Path)</Option>
         </Select>
       </Form.Item>
       
@@ -345,16 +575,16 @@ const PolicyConfiguration: React.FC = () => {
       
       <Form.Item name="matchingOperator" label="匹配操作符" rules={[{ required: true, message: '请选择匹配操作符' }]}>
         <Select placeholder="选择匹配方式">
-          <Option value="equals">等于(=)</Option>
-          <Option value="not_equals">不等于(!=)</Option>
-          <Option value="greater_than">大于(&gt;)</Option>
-          <Option value="greater_than_equal">大于等于(&gt;=)</Option>
-          <Option value="less_than">小于(&lt;)</Option>
-          <Option value="less_than_equal">小于等于(&lt;=)</Option>
-          <Option value="contains">包含(contains)</Option>
-          <Option value="starts_with">开头匹配(starts_with)</Option>
-          <Option value="ends_with">结尾匹配(ends_with)</Option>
-          <Option value="regex">正则匹配(regex)</Option>
+          <Option key="equals" value="equals">等于(=)</Option>
+          <Option key="not_equals" value="not_equals">不等于(!=)</Option>
+          <Option key="greater_than" value="greater_than">大于(&gt;)</Option>
+          <Option key="greater_than_equal" value="greater_than_equal">大于等于(&gt;=)</Option>
+          <Option key="less_than" value="less_than">小于(&lt;)</Option>
+          <Option key="less_than_equal" value="less_than_equal">小于等于(&lt;=)</Option>
+          <Option key="contains" value="contains">包含(contains)</Option>
+          <Option key="starts_with" value="starts_with">开头匹配(starts_with)</Option>
+          <Option key="ends_with" value="ends_with">结尾匹配(ends_with)</Option>
+          <Option key="regex" value="regex">正则匹配(regex)</Option>
         </Select>
       </Form.Item>
       
@@ -364,8 +594,8 @@ const PolicyConfiguration: React.FC = () => {
       
       <Form.Item name="matchingAction" label="匹配动作" rules={[{ required: true, message: '请选择匹配动作' }]}>
         <Select placeholder="选择匹配成功时的动作">
-          <Option value="allow">允许通过</Option>
-          <Option value="deny">拒绝请求</Option>
+          <Option key="allow" value="allow">允许通过</Option>
+          <Option key="deny" value="deny">拒绝请求</Option>
         </Select>
       </Form.Item>
     </div>
@@ -523,11 +753,13 @@ const PolicyConfiguration: React.FC = () => {
       title: '关联命名空间',
       dataIndex: 'namespaces',
       key: 'namespaces',
-      render: (namespaces: string[]) => (
+      render: (namespaces: Array<{id: string; code: string; name: string}>) => (
         <Space>
-          {Array.isArray(namespaces) && namespaces.map(ns => (
-            <Tag key={ns} color={getNamespaceColor(ns)}>{ns}</Tag>
-          ))}
+          {Array.isArray(namespaces) && namespaces.length > 0 ? namespaces.map((ns, index) => (
+            <Tag key={`${ns.id || ns.code || index}-${index}`} color="blue">{ns.name || ns.code}</Tag>
+          )) : (
+            <Text type="secondary">未关联</Text>
+          )}
         </Space>
       )
     },
@@ -535,13 +767,16 @@ const PolicyConfiguration: React.FC = () => {
       title: '主要规则',
       dataIndex: 'rules',
       key: 'rules',
-      render: (rules: string[]) => (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {Array.isArray(rules) && rules.map((rule, index) => (
-            <Text key={index} style={{ fontSize: '12px' }}>{rule}</Text>
-          ))}
-        </div>
-      )
+      render: (rules: string[], record: Policy) => {
+        const ruleDescription = generateRuleDescription(record);
+        return (
+          <div style={{ maxWidth: 300 }}>
+            <Tag color="green" style={{ margin: '2px 0', wordBreak: 'break-all' }}>
+              {ruleDescription}
+            </Tag>
+          </div>
+        );
+      }
     },
     {
       title: '状态',
@@ -579,7 +814,7 @@ const PolicyConfiguration: React.FC = () => {
       render: (_: any, record: Policy) => (
         <Space size="small">
           <Button type="link" icon={<EyeOutlined />} size="small">查看</Button>
-          <Button type="link" icon={<EditOutlined />} size="small">编辑</Button>
+          <Button type="link" icon={<EditOutlined />} size="small" onClick={() => handleEditPolicy(record)}>编辑</Button>
           <Button 
             type="link" 
             icon={<DeleteOutlined />} 
@@ -643,6 +878,13 @@ const PolicyConfiguration: React.FC = () => {
             </Button>
             <Button icon={<CopyOutlined />} onClick={handleCopyPolicy}>
               复制策略
+            </Button>
+            <Button 
+              type="default" 
+              icon={<ReloadOutlined />}
+              onClick={loadNamespaces}
+            >
+              测试加载命名空间
             </Button>
           </Space>
         </div>
@@ -969,16 +1211,16 @@ const PolicyConfiguration: React.FC = () => {
           <Title level={4} style={{ margin: 0, color: '#1d2129' }}>策略配置详情</Title>
           <Space>
             <Select value={selectedStatus} onChange={setSelectedStatus} style={{ width: 120 }} placeholder="全部状态">
-              <Option value="all">全部状态</Option>
-              <Option value="enabled">启用</Option>
-              <Option value="disabled">禁用</Option>
+              <Option key="all" value="all">全部状态</Option>
+              <Option key="enabled" value="enabled">启用</Option>
+              <Option key="disabled" value="disabled">禁用</Option>
             </Select>
             <Select value={selectedType} onChange={setSelectedType} style={{ width: 140 }} placeholder="全部策略类型">
-              <Option value="all">全部策略类型</Option>
-              <Option value="rate-limit">限流策略</Option>
-              <Option value="permission">权限策略</Option>
-              <Option value="security">安全策略</Option>
-              <Option value="hybrid">混合策略</Option>
+              <Option key="all" value="all">全部策略类型</Option>
+              <Option key="rate-limit" value="rate-limit">限流策略</Option>
+              <Option key="permission" value="permission">权限策略</Option>
+              <Option key="security" value="security">安全策略</Option>
+              <Option key="hybrid" value="hybrid">混合策略</Option>
             </Select>
             <Button icon={<ReloadOutlined />} />
           </Space>
@@ -989,9 +1231,9 @@ const PolicyConfiguration: React.FC = () => {
           loading={loading} 
           rowKey="id"
           pagination={{
-            pageSize: 4,
-            showSizeChanger: false,
-            total: 8,
+            pageSize: 10,
+            showSizeChanger: true,
+            total: policies.length,
             showTotal: (total, range) => `显示 ${range[0]} 到 ${range[1]} 条，共 ${total} 条记录`
           }}
           style={{ borderRadius: 0 }}
@@ -1026,11 +1268,19 @@ const PolicyConfiguration: React.FC = () => {
             <Input placeholder="请输入策略名称" />
           </Form.Item>
           <Form.Item name="namespaces" label="关联命名空间" rules={[{ required: true, message: '请选择命名空间' }]}>
-            <Select mode="multiple" placeholder="请选择命名空间">
-              <Option value="enterprise">enterprise</Option>
-              <Option value="dev">dev</Option>
-              <Option value="test">test</Option>
-              <Option value="default">default</Option>
+            <Select 
+              placeholder="请选择命名空间" 
+              loading={loading}
+              optionFilterProp="children"
+              filterOption={(input, option) =>
+                (option?.children as string)?.toLowerCase().includes(input.toLowerCase())
+              }
+            >
+              {namespaceOptions.map((option, index) => (
+                <Option key={option.key || `create-${option.value}-${index}`} value={option.value}>
+                  {option.label}
+                </Option>
+              ))}
             </Select>
           </Form.Item>
           <Form.Item name="type" label="策略类型" rules={[{ required: true, message: '请选择策略类型' }]}>
@@ -1039,10 +1289,10 @@ const PolicyConfiguration: React.FC = () => {
               onChange={handlePolicyTypeChange}
               value={selectedPolicyType}
             >
-              <Option value="message-matching">报文匹配 - 基于字段匹配的访问控制规则</Option>
-              <Option value="token-limit">Token限制 - 限制请求的Token数量</Option>
-              <Option value="concurrency-limit">并发限制 - 限制并发连接数</Option>
-              <Option value="qps-limit">QPS限制 - 限制每秒请求数</Option>
+              <Option key="message-matching" value="message-matching">报文匹配 - 基于字段匹配的访问控制规则</Option>
+              <Option key="token-limit" value="token-limit">Token限制 - 限制请求的Token数量</Option>
+              <Option key="concurrency-limit" value="concurrency-limit">并发限制 - 限制并发连接数</Option>
+              <Option key="qps-limit" value="qps-limit">QPS限制 - 限制每秒请求数</Option>
             </Select>
           </Form.Item>
 
@@ -1052,14 +1302,21 @@ const PolicyConfiguration: React.FC = () => {
           {selectedPolicyType === 'concurrency-limit' && <ConcurrencyLimitConfig />}
           {selectedPolicyType === 'qps-limit' && <QPSLimitConfig />}
 
-          <Form.Item name="priority" label="优先级" rules={[{ required: true, message: '请设置优先级' }]}>
-            <InputNumber 
-              min={1} 
-              max={100} 
-              placeholder="1-100" 
-              style={{ width: '100%' }}
-            />
-            <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>数字越小优先级越高</div>
+          <Form.Item 
+            name="priority" 
+            label="优先级"
+            rules={[{ required: true, message: '请设置优先级' }]}
+            initialValue={100}
+          >
+            <div>
+              <InputNumber 
+                min={1} 
+                max={100} 
+                placeholder="1-100" 
+                style={{ width: '100%' }}
+              />
+              <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>数字越小优先级越高</div>
+            </div>
           </Form.Item>
           
           <Form.Item name="enabled" label="启用" valuePropName="checked">
@@ -1079,13 +1336,83 @@ const PolicyConfiguration: React.FC = () => {
         <Form layout="vertical">
           <Form.Item label="选择源策略">
             <Select placeholder="请选择要复制的策略">
-              {Array.isArray(policies) && policies.map(policy => (
-                <Option key={policy.id} value={policy.id}>{policy.name}</Option>
+              {Array.isArray(policies) && policies.map((policy, index) => (
+                <Option key={`policy-${policy.id}-${index}`} value={policy.id}>{policy.name}</Option>
               ))}
             </Select>
           </Form.Item>
           <Form.Item label="新策略名称">
             <Input placeholder="请输入新策略名称" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 编辑策略模态框 */}
+      <Modal 
+        title="编辑策略" 
+        open={isEditModalVisible} 
+        onOk={() => form.validateFields().then(values => handleUpdatePolicy(values))} 
+        onCancel={handleModalCancel}
+        width={600}
+      >
+        <Form form={form} layout="vertical">
+          <Form.Item name="name" label="策略名称" rules={[{ required: true, message: '请输入策略名称' }]}>
+            <Input placeholder="请输入策略名称" />
+          </Form.Item>
+          <Form.Item name="namespaces" label="关联命名空间" rules={[{ required: true, message: '请选择命名空间' }]}>
+            <Select 
+              placeholder="请选择命名空间" 
+              loading={loading}
+              optionFilterProp="children"
+              filterOption={(input, option) =>
+                (option?.children as string)?.toLowerCase().includes(input.toLowerCase())
+              }
+            >
+              {namespaceOptions.map((option, index) => (
+                <Option key={option.key || `edit-${option.value}-${index}`} value={option.value}>
+                  {option.label}
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
+          <Form.Item name="type" label="策略类型" rules={[{ required: true, message: '请选择策略类型' }]}>
+            <Select 
+              placeholder="请选择策略类型" 
+              onChange={handlePolicyTypeChange}
+              value={selectedPolicyType}
+            >
+              <Option key="message-matching" value="message-matching">报文匹配 - 基于字段匹配的访问控制规则</Option>
+              <Option key="token-limit" value="token-limit">Token限制 - 限制请求的Token数量</Option>
+              <Option key="concurrency-limit" value="concurrency-limit">并发限制 - 限制并发连接数</Option>
+              <Option key="qps-limit" value="qps-limit">QPS限制 - 限制每秒请求数</Option>
+            </Select>
+          </Form.Item>
+
+          {/* 动态显示不同的配置组件 */}
+          {selectedPolicyType === 'message-matching' && <MessageMatchingConfig />}
+          {selectedPolicyType === 'token-limit' && <TokenLimitConfig />}
+          {selectedPolicyType === 'concurrency-limit' && <ConcurrencyLimitConfig />}
+          {selectedPolicyType === 'qps-limit' && <QPSLimitConfig />}
+
+          <Form.Item 
+            name="priority" 
+            label="优先级"
+            rules={[{ required: true, message: '请设置优先级' }]}
+            initialValue={100}
+          >
+            <div>
+              <InputNumber 
+                min={1} 
+                max={100} 
+                placeholder="1-100" 
+                style={{ width: '100%' }}
+              />
+              <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>数字越小优先级越高</div>
+            </div>
+          </Form.Item>
+          
+          <Form.Item name="enabled" label="启用" valuePropName="checked">
+            <Switch defaultChecked />
           </Form.Item>
         </Form>
       </Modal>

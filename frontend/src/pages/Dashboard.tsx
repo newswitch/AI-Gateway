@@ -846,6 +846,7 @@ const Dashboard: React.FC = () => {
              pageSize: 5,
              showSizeChanger: false,
              total: timeBucketData.length,
+             hideOnSinglePage: true,
              style: { padding: '16px 20px' }
            }}
            style={{ borderRadius: 0 }}

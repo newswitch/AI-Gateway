@@ -1,8 +1,9 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import Optional, List, Union, Dict
 import uvicorn
+import time
 from token_service import TokenService
 from config import Config
 
@@ -25,39 +26,86 @@ app.add_middleware(
 # 初始化Token服务
 token_service = TokenService()
 
-# 请求模型
+# 基础请求模型
 class TokenRequest(BaseModel):
     text: str
     model_name: str
 
-class BatchTokenRequest(BaseModel):
-    texts: List[str]
-    model_name: str
+# OpenAI 格式请求模型
+class OpenAIToolCall(BaseModel):
+    id: str
+    type: str = "function"
+    function: Dict[str, str]  # name 和 arguments
 
-class DownloadModelRequest(BaseModel):
-    model_name: str
+class OpenAIMessage(BaseModel):
+    role: str
+    content: Optional[str] = None
+    tool_calls: Optional[List[OpenAIToolCall]] = None
+    tool_call_id: Optional[str] = None
 
-# 响应模型
+class OpenAIRequest(BaseModel):
+    model: str
+    messages: List[OpenAIMessage]
+    temperature: Optional[float] = 0.7
+    max_tokens: Optional[int] = None
+    stream: Optional[bool] = False
+    top_p: Optional[float] = 1.0
+    frequency_penalty: Optional[float] = 0.0
+    presence_penalty: Optional[float] = 0.0
+    stop: Optional[List[str]] = None
+
+# 统一请求模型（支持两种格式）
+class UnifiedTokenRequest(BaseModel):
+    # 基础格式字段
+    text: Optional[str] = None
+    model_name: Optional[str] = None
+    
+    # OpenAI 格式字段
+    model: Optional[str] = None
+    messages: Optional[List[OpenAIMessage]] = None
+    temperature: Optional[float] = 0.7
+    max_tokens: Optional[int] = None
+    stream: Optional[bool] = False
+    top_p: Optional[float] = 1.0
+    frequency_penalty: Optional[float] = 0.0
+    presence_penalty: Optional[float] = 0.0
+    stop: Optional[List[str]] = None
+    
+    class Config:
+        # 允许任意字段，不进行严格验证
+        extra = "allow"
+
+# 基础响应模型
 class TokenResponse(BaseModel):
     success: bool
     model_name: Optional[str] = None
     model_type: Optional[str] = None
     text: Optional[str] = None
     token_count: int
-    sample_tokens: Optional[List[int]] = None
+    sample_tokens: Optional[list] = None
     sample_text: Optional[str] = None
     text_length: Optional[int] = None
     tokenizer_type: Optional[str] = None
     error: Optional[str] = None
 
-class ModelInfo(BaseModel):
-    name: str
-    description: str
-    downloaded: bool
-    available: bool
-    url: str
-    type: str
-    tokenizer_type: str
+# OpenAI 格式响应模型
+class OpenAIChoice(BaseModel):
+    index: int
+    message: OpenAIMessage
+    finish_reason: str
+
+class OpenAIUsage(BaseModel):
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+class OpenAIResponse(BaseModel):
+    id: str
+    object: str = "chat.completion"
+    created: int
+    model: str
+    choices: List[OpenAIChoice]
+    usage: OpenAIUsage
 
 @app.get("/")
 async def root():
@@ -67,83 +115,24 @@ async def root():
         "version": "1.0.0",
         "endpoints": {
             "计算单个文本token": "/calculate",
-            "批量计算token": "/batch-calculate", 
-            "获取可用模型": "/models",
-            "下载模型": "/download-model",
-            "健康检查": "/health"
+            "支持格式": ["基础格式", "OpenAI格式"]
+        },
+        "支持的请求格式": {
+            "基础格式": {
+                "text": "要计算的文本",
+                "model_name": "模型名称"
+            },
+            "OpenAI格式": {
+                "model": "模型名称",
+                "messages": [{"role": "user", "content": "消息内容"}]
+            }
+        },
+        "响应格式": {
+            "token_count": "token数量",
+            "model": "使用的模型名称",
+            "success": "是否成功"
         }
     }
-
-@app.post("/calculate", response_model=TokenResponse)
-async def calculate_tokens(request: TokenRequest):
-    """
-    计算单个文本的token数量
-    
-    Args:
-        request: 包含文本和模型名称的请求
-        
-    Returns:
-        TokenResponse: token计算结果
-    """
-    try:
-        result = token_service.calculate_tokens(request.text, request.model_name)
-        return TokenResponse(**result)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"计算失败: {str(e)}")
-
-@app.post("/batch-calculate", response_model=List[TokenResponse])
-async def batch_calculate_tokens(request: BatchTokenRequest):
-    """
-    批量计算多个文本的token数量
-    
-    Args:
-        request: 包含文本列表和模型名称的请求
-        
-    Returns:
-        List[TokenResponse]: 每个文本的token计算结果
-    """
-    try:
-        results = token_service.batch_calculate_tokens(request.texts, request.model_name)
-        return [TokenResponse(**result) for result in results]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"批量计算失败: {str(e)}")
-
-@app.get("/models", response_model=List[ModelInfo])
-async def get_models():
-    """
-    获取可用的模型列表
-    
-    Returns:
-        List[ModelInfo]: 可用模型信息列表
-    """
-    try:
-        models = token_service.get_available_models()
-        return [ModelInfo(**model) for model in models]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取模型列表失败: {str(e)}")
-
-@app.post("/download-model")
-async def download_model(request: DownloadModelRequest):
-    """
-    下载指定模型到本地
-    
-    Args:
-        request: 包含模型名称的请求
-        
-    Returns:
-        dict: 下载结果
-    """
-    try:
-        success = token_service.download_model(request.model_name)
-        if success:
-            return {
-                "success": True,
-                "message": f"模型 {request.model_name} 下载成功"
-            }
-        else:
-            raise HTTPException(status_code=400, detail=f"模型 {request.model_name} 下载失败")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"下载失败: {str(e)}")
 
 @app.get("/health")
 @app.head("/health")
@@ -154,6 +143,71 @@ async def health_check():
         "service": "token-calculator",
         "version": "1.0.0"
     }
+
+@app.post("/calculate")
+async def calculate_tokens(request: UnifiedTokenRequest):
+    """
+    计算文本的token数量，支持基础格式和OpenAI格式
+    
+    Args:
+        request: 统一请求格式，支持两种输入方式
+        
+    Returns:
+        dict: 简化的响应格式，只包含token数量
+    """
+    try:
+        # 判断请求格式
+        is_openai_format = request.messages is not None and request.model is not None
+        
+        if is_openai_format:
+            # OpenAI 格式处理
+            # 提取消息内容，包括工具调用
+            messages_text = ""
+            for message in request.messages:
+                # 处理普通消息内容
+                if message.content:
+                    messages_text += message.content + "\n"
+                
+                # 处理工具调用
+                if message.tool_calls:
+                    for tool_call in message.tool_calls:
+                        messages_text += f"Tool Call: {tool_call.function.get('name', 'unknown')}\n"
+                        messages_text += f"Arguments: {tool_call.function.get('arguments', '')}\n"
+            
+            # 计算token
+            result = token_service.calculate_tokens(messages_text, request.model)
+            
+            if not result["success"]:
+                raise HTTPException(status_code=400, detail=f"Token计算失败: {result['error']}")
+            
+            # 返回简化的响应
+            return {
+                "token_count": result["token_count"],
+                "model": request.model,
+                "success": True
+            }
+        else:
+            # 基础格式处理
+            if not request.text or not request.model_name:
+                raise HTTPException(status_code=400, detail="基础格式需要提供text和model_name字段")
+            
+            result = token_service.calculate_tokens(request.text, request.model_name)
+            
+            if not result["success"]:
+                raise HTTPException(status_code=400, detail=f"Token计算失败: {result['error']}")
+            
+            # 返回简化的响应
+            return {
+                "token_count": result["token_count"],
+                "model": request.model_name,
+                "success": True
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"计算失败: {str(e)}")
+
 
 if __name__ == "__main__":
     uvicorn.run(

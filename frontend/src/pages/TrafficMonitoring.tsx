@@ -41,8 +41,8 @@ const TrafficMonitoring: React.FC = () => {
   });
   const [loading, setLoading] = useState(false);
   const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [trafficMetrics, setTrafficMetrics] = useState<any>({});
-  const [alertStats, setAlertStats] = useState<any>({});
+  const [_trafficMetrics, setTrafficMetrics] = useState<any>({});
+  const [_alertStats, setAlertStats] = useState<any>({});
 
   // 数据加载函数
   const loadTrafficData = async () => {
@@ -811,7 +811,7 @@ const TrafficMonitoring: React.FC = () => {
                 percent={68.4} 
                 strokeColor="#00B42A" 
                 showInfo={false}
-                strokeWidth={8}
+                size={8}
               />
             </div>
           </Card>

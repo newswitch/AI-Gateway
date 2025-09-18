@@ -9,20 +9,16 @@
 ### TTL配置
 ```python
 cache_ttl = {
-    'namespace': 3600,      # 命名空间缓存1小时
-    'matchers': 3600,       # 匹配器缓存1小时
-    'rules': 3600,          # 规则缓存1小时
-    'upstream': 1800,       # 上游服务器缓存30分钟
-    'proxy': 1800,          # 代理规则缓存30分钟
-    'nginx_config': 7200,   # Nginx配置缓存2小时
-    'policies': 1800,       # 策略配置缓存30分钟
-    'traffic': 300,         # 流量监控缓存5分钟
-    'logs': 600,            # 访问日志缓存10分钟
-    'dashboard': 60,        # 仪表盘数据缓存1分钟
-    'locations': 1800,      # 路由规则缓存30分钟
-    'auth': 3600,           # 认证信息缓存1小时
-    'alerts': 300,          # 告警信息缓存5分钟
-    'stats': 300            # 统计数据缓存5分钟
+    'namespace': 3600,           # 命名空间缓存1小时
+    'location_rules': 1800,      # 路由规则缓存30分钟（原 matchers + proxy_rules）
+    'policies': 1800,            # 策略配置缓存30分钟（原 rules）
+    'upstream_servers': 1800,    # 上游服务器缓存30分钟（原 upstream）
+    'system_configs': 7200,      # 系统配置缓存2小时（原 nginx_config）
+    'monitoring_metrics': 300,   # 监控指标缓存5分钟（新增）
+    'access_logs': 600,          # 访问日志缓存10分钟
+    'dashboard': 60,             # 仪表盘数据缓存1分钟
+    'auth': 3600,                # 认证信息缓存1小时
+    'stats': 300                 # 统计数据缓存5分钟
 }
 ```
 
