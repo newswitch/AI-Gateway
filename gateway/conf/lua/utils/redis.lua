@@ -136,6 +136,22 @@ function _M.incr_ex(key, ttl)
     return result, err
 end
 
+-- 增加指定数值并设置过期时间
+function _M.incrby_ex(key, increment, ttl)
+    local red, err = _M.get_connection()
+    if not red then
+        return nil, err
+    end
+    
+    local result, err = red:incrby(key, increment)
+    if result then
+        red:expire(key, ttl)
+    end
+    
+    red:close()
+    return result, err
+end
+
 -- 检查连接
 function _M.ping()
     local red, err = _M.get_connection()

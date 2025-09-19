@@ -51,6 +51,14 @@ local config = {
         max_tokens_per_hour = 100000    -- 默认每小时最大token数
     },
     
+    -- Token计算服务设置
+    token_service = {
+        url = os.getenv("TOKEN_SERVICE_URL") or "http://token-service:8000",
+        timeout = 5000,  -- 5秒超时
+        retry_count = 2, -- 重试次数
+        fallback_enabled = true  -- 启用降级机制
+    },
+    
     -- 日志设置
     log = {
         level = os.getenv("LOG_LEVEL") or "info",

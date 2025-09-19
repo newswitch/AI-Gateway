@@ -1,8 +1,11 @@
 -- 策略执行器模块
 -- 负责执行命名空间关联的策略检查
+-- 支持流式与非流式Token限制
 
 local json = require "utils.json"
 local redis = require "utils.redis"
+local http = require "utils.http"
+local core = require "core.init"
 
 local _M = {}
 
@@ -14,6 +17,7 @@ local function enforce_token_limit(policy, request_info)
     local enable_time_window = config.enableTimeWindow or false
     local time_window_minutes = config.timeWindowMinutes or 60
     local window_max_tokens = config.windowMaxTokenCount or 0
+    local stream_mode = config.streamMode or "auto"  -- auto, stream, non-stream
     
     -- 解析请求体获取Token信息
     if not request_info.body then
@@ -26,13 +30,74 @@ local function enforce_token_limit(policy, request_info)
         return true, "Failed to parse request body"
     end
     
-    -- 获取输入Token数量
+    -- 检测流式模式
+    local is_streaming = false
+    if stream_mode == "auto" then
+        is_streaming = body_data.stream == true or body_data.stream == "true"
+    elseif stream_mode == "stream" then
+        is_streaming = true
+    elseif stream_mode == "non-stream" then
+        is_streaming = false
+    end
+    
+    ngx.log(ngx.INFO, "Token limit check - Streaming mode: ", is_streaming)
+    
+    -- 获取输入Token数量 - 使用Token计算服务
     local input_tokens = 0
     if body_data.messages then
-        for _, message in ipairs(body_data.messages) do
-            if message.content then
-                -- 简单的Token估算（实际应该调用Token计算服务）
-                input_tokens = input_tokens + math.ceil(string.len(message.content) / 4)
+        -- 从配置中获取Token服务设置
+        local token_config = core.get_config().token_service
+        local token_service_url = token_config.url .. "/calculate"
+        
+        -- 调用Token计算服务
+        local token_request = {
+            model = body_data.model or "Qwen3-8B",  -- 默认模型
+            messages = body_data.messages
+        }
+        
+        -- 将请求数据编码为JSON
+        local request_json, json_err = json.encode(token_request)
+        if not request_json then
+            ngx.log(ngx.ERR, "Failed to encode token request: ", json_err)
+            return false, "Failed to encode token request"
+        end
+        
+        local token_response, err = http.post(token_service_url, request_json)
+        if token_response then
+            -- 解析JSON响应
+            local response_data, parse_err = json.decode(token_response)
+            if response_data and response_data.success then
+                input_tokens = response_data.token_count or 0
+                ngx.log(ngx.INFO, "Token calculation successful: ", input_tokens, " tokens for model: ", response_data.model or "unknown")
+            else
+                ngx.log(ngx.WARN, "Token calculation response parse failed: ", parse_err or "Invalid response format")
+                -- 如果启用了降级机制，使用简单估算
+                if token_config.fallback_enabled then
+                    for _, message in ipairs(body_data.messages) do
+                        if message.content then
+                            input_tokens = input_tokens + math.ceil(string.len(message.content) / 4)
+                        end
+                    end
+                    ngx.log(ngx.WARN, "Using fallback token estimation: ", input_tokens, " tokens")
+                else
+                    ngx.log(ngx.ERR, "Token calculation failed and fallback disabled")
+                    return false, "Token calculation service unavailable"
+                end
+            end
+        else
+            ngx.log(ngx.WARN, "Token calculation failed: ", err or "Unknown error")
+            
+            -- 如果启用了降级机制，使用简单估算
+            if token_config.fallback_enabled then
+                for _, message in ipairs(body_data.messages) do
+                    if message.content then
+                        input_tokens = input_tokens + math.ceil(string.len(message.content) / 4)
+                    end
+                end
+                ngx.log(ngx.WARN, "Using fallback token estimation: ", input_tokens, " tokens")
+            else
+                ngx.log(ngx.ERR, "Token calculation failed and fallback disabled")
+                return false, "Token calculation service unavailable"
             end
         end
     end
@@ -41,6 +106,56 @@ local function enforce_token_limit(policy, request_info)
     if max_input > 0 and input_tokens > max_input then
         ngx.log(ngx.WARN, "Input token limit exceeded: ", input_tokens, " > ", max_input)
         return false, "Input token limit exceeded"
+    end
+    
+    -- 获取用户请求的输出Token限制参数
+    local max_tokens = body_data.max_tokens or 0
+    local max_completion_tokens = body_data.max_completion_tokens or max_tokens
+    
+    -- max_output 是从策略配置中获取的系统级限制（已从Redis缓存中获取）
+    -- max_completion_tokens 是从用户请求中获取的用户级限制
+    -- 最终限制 = min(系统限制, 用户限制)
+    local final_output_limit = max_output
+    if max_output > 0 and max_completion_tokens > 0 then
+        final_output_limit = math.min(max_output, max_completion_tokens)
+    elseif max_output > 0 then
+        final_output_limit = max_output
+    elseif max_completion_tokens > 0 then
+        final_output_limit = max_completion_tokens
+    else
+        final_output_limit = 0  -- 无限制
+    end
+    
+    ngx.log(ngx.INFO, "Token limit calculation - System limit: ", max_output, 
+            ", User request: ", max_completion_tokens, 
+            ", Final limit: ", final_output_limit)
+    
+    -- 根据流式模式进行不同的处理
+    if is_streaming then
+        -- 流式模式：设置流式Token限制
+        ngx.log(ngx.INFO, "Streaming mode - setting up real-time token monitoring")
+        
+        -- 检查输出Token限制
+        if final_output_limit > 0 and max_completion_tokens > final_output_limit then
+            ngx.log(ngx.WARN, "Output token limit exceeded: ", max_completion_tokens, " > ", final_output_limit)
+            return false, "Output token limit exceeded"
+        end
+        
+        -- 设置流式Token限制到请求头，供后续处理使用
+        ngx.req.set_header("X-Token-Limit-Output", final_output_limit)
+        ngx.req.set_header("X-Token-Limit-Streaming", "true")
+        ngx.req.set_header("X-Token-Limit-Max-Tokens", max_completion_tokens)
+        ngx.req.set_header("X-Token-Limit-Model", body_data.model or "Qwen3-8B")
+        
+    else
+        -- 非流式模式：预检查所有Token限制
+        ngx.log(ngx.INFO, "Non-streaming mode - pre-checking all token limits")
+        
+        -- 检查输出Token限制
+        if final_output_limit > 0 and max_completion_tokens > final_output_limit then
+            ngx.log(ngx.WARN, "Output token limit exceeded: ", max_completion_tokens, " > ", final_output_limit)
+            return false, "Output token limit exceeded"
+        end
     end
     
     -- 检查时间窗口限制
@@ -55,16 +170,105 @@ local function enforce_token_limit(policy, request_info)
             current_usage = tonumber(current_usage) or 0
         end
         
-        if current_usage + input_tokens > window_max_tokens then
-            ngx.log(ngx.WARN, "Time window token limit exceeded: ", current_usage + input_tokens, " > ", window_max_tokens)
+        -- 计算总Token使用量（输入 + 预期输出）
+        local total_tokens = input_tokens + final_output_limit
+        
+        if current_usage + total_tokens > window_max_tokens then
+            ngx.log(ngx.WARN, "Time window token limit exceeded: ", current_usage + total_tokens, " > ", window_max_tokens)
             return false, "Time window token limit exceeded"
         end
         
         -- 更新使用量
-        redis.incr_ex(time_key, time_window_minutes * 60)
+        local update_result, update_err = redis.incrby_ex(time_key, input_tokens, time_window_minutes * 60)
+        if not update_result then
+            ngx.log(ngx.ERR, "Failed to update token usage in Redis: ", update_err)
+            -- 即使更新失败，也允许请求继续，但记录错误
+        else
+            ngx.log(ngx.INFO, "Updated token usage: +", input_tokens, " tokens, total: ", update_result)
+        end
+        
+        -- 为输出Token预留空间（使用负数来预留，实际输出时再增加）
+        if final_output_limit > 0 then
+            local reserve_result, reserve_err = redis.incrby_ex(time_key, -final_output_limit, time_window_minutes * 60)
+            if reserve_result then
+                ngx.log(ngx.INFO, "Reserved space for output tokens: ", final_output_limit)
+            end
+        end
     end
     
     return true, "Token limit check passed"
+end
+
+-- 流式响应Token监控和截断
+function _M.monitor_streaming_tokens(response_chunk)
+    -- 检查是否设置了流式Token限制
+    local streaming_enabled = ngx.var.http_x_token_limit_streaming
+    if not streaming_enabled or streaming_enabled ~= "true" then
+        return response_chunk, false  -- 未启用流式监控
+    end
+    
+    local max_output_tokens = tonumber(ngx.var.http_x_token_limit_output) or 0
+    local max_tokens = tonumber(ngx.var.http_x_token_limit_max_tokens) or 0
+    local model = ngx.var.http_x_token_limit_model or "Qwen3-8B"
+    
+    if max_output_tokens <= 0 and max_tokens <= 0 then
+        return response_chunk, false  -- 未设置Token限制
+    end
+    
+    -- 获取当前累积的Token数量
+    local current_tokens = tonumber(ngx.var.streaming_token_count) or 0
+    
+    -- 使用token-count服务计算当前块的Token数量
+    local chunk_tokens = _M.calculate_output_tokens_with_service(response_chunk, model)
+    current_tokens = current_tokens + chunk_tokens
+    
+    -- 检查是否超过限制
+    if max_output_tokens > 0 and current_tokens > max_output_tokens then
+        ngx.log(ngx.WARN, "Streaming output token limit exceeded: ", current_tokens, " > ", max_output_tokens)
+        return response_chunk .. "\n\n[Token limit exceeded, response truncated]", true  -- 截断响应
+    end
+    
+    if max_tokens > 0 and current_tokens > max_tokens then
+        ngx.log(ngx.WARN, "Streaming max tokens exceeded: ", current_tokens, " > ", max_tokens)
+        return response_chunk .. "\n\n[Max tokens exceeded, response truncated]", true  -- 截断响应
+    end
+    
+    -- 更新Token计数
+    ngx.var.streaming_token_count = current_tokens
+    
+    return response_chunk, false  -- 继续响应
+end
+
+-- 使用token-count服务计算输出Token
+function _M.calculate_output_tokens_with_service(text, model)
+    local token_config = core.get_config().token_service
+    local token_service_url = token_config.url .. "/calculate"
+    
+    local token_request = {
+        text = text,
+        model_name = model or "Qwen3-8B"
+    }
+    
+    local request_json, json_err = json.encode(token_request)
+    if not request_json then
+        ngx.log(ngx.WARN, "Failed to encode output token request: ", json_err)
+        return math.ceil(string.len(text) / 4)  -- 降级估算
+    end
+    
+    local token_response, err = http.post(token_service_url, request_json)
+    if token_response then
+        local response_data, parse_err = json.decode(token_response)
+        if response_data and response_data.success then
+            return response_data.token_count or 0
+        else
+            ngx.log(ngx.WARN, "Output token calculation response parse failed: ", parse_err or "Invalid response format")
+        end
+    else
+        ngx.log(ngx.WARN, "Output token calculation failed: ", err or "Unknown error")
+    end
+    
+    -- 降级到简单估算
+    return math.ceil(string.len(text) / 4)
 end
 
 -- 执行QPS限制策略
@@ -194,11 +398,18 @@ end
 
 -- 执行策略
 function _M.enforce_policy(policy, request_info)
-    if not policy or not policy.is_active then
+    if not policy then
+        ngx.log(ngx.WARN, "Policy is nil")
+        return true, "Policy is nil"
+    end
+    
+    if not policy.is_active then
+        ngx.log(ngx.INFO, "Policy not active: ", policy.name or policy.policy_name or "unknown")
         return true, "Policy not active"
     end
     
     local policy_type = policy.type or policy.policy_type
+    ngx.log(ngx.INFO, "Enforcing policy: ", policy.name or policy.policy_name or "unknown", " (type: ", policy_type, ")")
     
     if policy_type == "token-limit" then
         return enforce_token_limit(policy, request_info)
