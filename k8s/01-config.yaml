@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-gateway-config
+  namespace: ai-gateway
+data:
+  # 数据库配置
+  DATABASE_URL: "mysql+aiomysql://ai_gateway:ai_gateway_pass@ai-gateway-mysql.ai-gateway.svc.cluster.local:3306/ai_gateway_config"
+  
+  # Redis配置
+  REDIS_URL: "redis://ai-gateway-redis:6379/0"
+  
+  # 服务配置
+  DEBUG: "false"
+  LOG_LEVEL: "INFO"
+  
+  # 监控配置
+  MONITORING_ENABLED: "true"
+  MONITORING_REFRESH_INTERVAL: "30"
+  CACHE_TTL_NAMESPACE: "3600"
+  CACHE_TTL_MATCHERS: "1800"
+  CACHE_TTL_RULES: "1800"
+  CACHE_TTL_UPSTREAM: "3600"
+  
+  # Token服务配置
+  # 支持以下格式：
+  # - http://ai-gateway-token-service:8000 (自动添加 /calculate)
+  # - http://ai-gateway-token-service:8000/ (自动添加 calculate)
+  # - http://ai-gateway-token-service:8000/calculate (完整URL)
+  TOKEN_SERVICE_URL: "http://ai-gateway-token-service:8000"
+  USE_PRECISE_TOKEN_CALCULATION: "true"
+  TOKEN_CALCULATION_TIMEOUT: "3000"
+  TOKEN_CACHE_TTL: "300"
+  
+  # Gateway配置
+  CONFIG_CENTER_URL: "http://ai-gateway-config-center:8000"
+  
+  # 前端配置
+  REACT_APP_API_BASE_URL: "http://api.ai-gateway.local"
+  REACT_APP_MONITORING_ENABLED: "true"
+  REACT_APP_MONITORING_REFRESH_INTERVAL: "30000"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ai-gateway-secrets
+  namespace: ai-gateway
+type: Opaque
+data:
+  # Base64编码的密码
+  MYSQL_ROOT_PASSWORD: YWlfZ2F0ZXdheV9yb290
+  MYSQL_PASSWORD: YWlfZ2F0ZXdheV9wYXNz
+  MYSQL_USER: YWlfZ2F0ZXdheQ==
+  MYSQL_DATABASE: YWlfZ2F0ZXdheV9jb25maWc= 

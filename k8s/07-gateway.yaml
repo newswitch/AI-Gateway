@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-gateway-nginx
+  namespace: ai-gateway
+  labels:
+    app: ai-gateway-nginx
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: ai-gateway-nginx
+  template:
+    metadata:
+      labels:
+        app: ai-gateway-nginx
+    spec:
+      containers:
+      - name: gateway
+        image: ai-gateway-nginx:latest
+        imagePullPolicy: Never  # 使用本地构建的镜像
+        ports:
+        - containerPort: 80
+        env:
+        - name: CONFIG_CENTER_URL
+          valueFrom:
+            configMapKeyRef:
+              name: ai-gateway-config
+              key: CONFIG_CENTER_URL
+        - name: REDIS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: ai-gateway-config
+              key: REDIS_URL
+        - name: TOKEN_SERVICE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: ai-gateway-config
+              key: TOKEN_SERVICE_URL
+        - name: USE_PRECISE_TOKEN_CALCULATION
+          valueFrom:
+            configMapKeyRef:
+              name: ai-gateway-config
+              key: USE_PRECISE_TOKEN_CALCULATION
+        - name: TOKEN_CALCULATION_TIMEOUT
+          valueFrom:
+            configMapKeyRef:
+              name: ai-gateway-config
+              key: TOKEN_CALCULATION_TIMEOUT
+        - name: TOKEN_CACHE_TTL
+          valueFrom:
+            configMapKeyRef:
+              name: ai-gateway-config
+              key: TOKEN_CACHE_TTL
+        - name: LOG_LEVEL
+          value: "INFO"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 40
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          timeoutSeconds: 5
+        volumeMounts:
+        - name: logs
+          mountPath: /var/log/nginx
+      volumes:
+      - name: logs
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-gateway-nginx
+  namespace: ai-gateway
+  labels:
+    app: ai-gateway-nginx
+spec:
+  selector:
+    app: ai-gateway-nginx
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+  type: ClusterIP 

@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-gateway-config-center
+  namespace: ai-gateway
+  labels:
+    app: ai-gateway-config-center
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ai-gateway-config-center
+  template:
+    metadata:
+      labels:
+        app: ai-gateway-config-center
+    spec:
+      containers:
+      - name: config-center
+        image: ai-gateway-config-center:latest
+        imagePullPolicy: Never  # 使用本地构建的镜像
+        ports:
+        - containerPort: 8000
+        envFrom:
+        - configMapRef:
+            name: ai-gateway-config
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 40
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          timeoutSeconds: 5
+        volumeMounts:
+        - name: logs
+          mountPath: /app/logs
+      volumes:
+      - name: logs
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-gateway-config-center
+  namespace: ai-gateway
+  labels:
+    app: ai-gateway-config-center
+spec:
+  selector:
+    app: ai-gateway-config-center
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+  type: ClusterIP 

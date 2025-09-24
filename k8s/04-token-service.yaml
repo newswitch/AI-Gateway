@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-gateway-token-service
+  namespace: ai-gateway
+  labels:
+    app: ai-gateway-token-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ai-gateway-token-service
+  template:
+    metadata:
+      labels:
+        app: ai-gateway-token-service
+    spec:
+      containers:
+      - name: token-service
+        image: ai-gateway-token-service:latest
+        imagePullPolicy: Never  # 使用本地构建的镜像
+        ports:
+        - containerPort: 8000
+        env:
+        - name: HOST
+          value: "0.0.0.0"
+        - name: PORT
+          value: "8000"
+        - name: DEBUG
+          value: "false"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: MODELS_DIR
+          value: "/app/models"
+        - name: HF_CACHE_DIR
+          value: "/app/.cache/huggingface"
+        volumeMounts:
+        - name: token-models
+          mountPath: /app/models
+        - name: token-cache
+          mountPath: /app/.cache
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+      volumes:
+      - name: token-models
+        persistentVolumeClaim:
+          claimName: token-models-pvc
+      - name: token-cache
+        persistentVolumeClaim:
+          claimName: token-cache-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-gateway-token-service
+  namespace: ai-gateway
+  labels:
+    app: ai-gateway-token-service
+spec:
+  selector:
+    app: ai-gateway-token-service
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: token-models-pvc
+  namespace: ai-gateway
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: hostpath
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: token-cache-pvc
+  namespace: ai-gateway
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: hostpath 

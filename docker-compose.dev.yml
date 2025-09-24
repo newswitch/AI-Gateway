@@ -1,0 +1,237 @@
+services:
+  # MySQL数据库
+  mysql:
+    image: mysql:8.0
+    container_name: ai-gateway-mysql-dev
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ai_gateway_root
+      MYSQL_DATABASE: ai_gateway_config
+      MYSQL_USER: ai_gateway
+      MYSQL_PASSWORD: ai_gateway_pass
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data_dev:/var/lib/mysql
+    networks:
+      - ai-gateway-dev-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  # Redis缓存
+  redis:
+    image: redis:7-alpine
+    container_name: ai-gateway-redis-dev
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data_dev:/data
+    networks:
+      - ai-gateway-dev-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      timeout: 20s
+      retries: 10
+
+  # Token计算服务
+  token-service:
+    image: ai-gateway-token-service
+    container_name: ai-gateway-token-service-dev
+    restart: unless-stopped
+    ports:
+      - "8002:8000"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8000
+      DEBUG: true
+      LOG_LEVEL: DEBUG
+      MODELS_DIR: /app/models
+      HF_CACHE_DIR: /app/.cache/huggingface
+    volumes:
+      - token_models_dev:/app/models
+      - token_cache_dev:/app/.cache
+    networks:
+      - ai-gateway-dev-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8000/health"]
+      timeout: 30s
+      retries: 5
+      start_period: 60s
+
+  # Mock LLM 服务
+  mock-llm:
+    build:
+      context: ./services/mock-llm
+      dockerfile: Dockerfile
+    container_name: ai-gateway-mock-llm-dev
+    restart: unless-stopped
+    ports:
+      - "8003:8003"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8003
+      DEBUG: true
+      LOG_LEVEL: DEBUG
+    networks:
+      - ai-gateway-dev-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8003/health"]
+      timeout: 20s
+      retries: 10
+
+  # 配置中心服务 - 开发模式
+  config-center:
+    image: python:3.11-slim
+    container_name: ai-gateway-config-center-dev
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    environment:
+      DATABASE_URL: mysql+aiomysql://ai_gateway:ai_gateway_pass@mysql:3306/ai_gateway_config
+      REDIS_URL: redis://redis:6379/0
+      DEBUG: true
+      LOG_LEVEL: DEBUG
+      MONITORING_ENABLED: true
+      MONITORING_REFRESH_INTERVAL: 30
+      CACHE_TTL_NAMESPACE: 3600
+      CACHE_TTL_MATCHERS: 1800
+      CACHE_TTL_RULES: 1800
+      CACHE_TTL_UPSTREAM: 3600
+      TOKEN_SERVICE_URL: http://token-service:8000
+    volumes:
+      # 挂载源代码，支持热重载
+      - ./config-center:/app
+      - /app/__pycache__
+    working_dir: /app
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      token-service:
+        condition: service_healthy
+    networks:
+      - ai-gateway-dev-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')"]
+      timeout: 30s
+      retries: 5
+      start_period: 40s
+    command: >
+      sh -c "
+        pip install --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple && 
+        pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple && 
+        python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+      "
+
+  # 前端服务 - 开发模式
+  frontend:
+    image: node:20-alpine
+    container_name: ai-gateway-frontend-dev
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8001
+      - VITE_MONITORING_ENABLED=true
+      - VITE_MONITORING_REFRESH_INTERVAL=30000
+    volumes:
+      # 挂载源代码，支持热重载
+      - ./frontend:/app
+      - /app/node_modules
+    working_dir: /app
+    depends_on:
+      config-center:
+        condition: service_healthy
+    networks:
+      - ai-gateway-dev-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://0.0.0.0:3000"]
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    command: >
+      sh -c "
+        npm install && 
+        npm run dev -- --host 0.0.0.0 --port 3000
+      "
+
+  # OpenResty 网关服务 - 开发模式
+  gateway:
+    image: openresty/openresty:alpine
+    container_name: ai-gateway-gateway-dev
+    restart: unless-stopped
+    ports:
+      - "8080:8080"  # 网关端口
+    environment:
+      # 配置中心地址
+      CONFIG_CENTER_URL: http://config-center:8000
+      # Redis地址
+      REDIS_URL: redis://redis:6379/0
+      # Prometheus配置
+      PROMETHEUS_ENABLED: true
+      # 调试模式
+      DEBUG: true
+      LOG_LEVEL: debug
+      # 实例标识
+      INSTANCE_ID: gateway-1
+    volumes:
+      # 挂载Nginx配置到OpenResty的正确路径
+      - ./gateway/conf/nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf:ro
+      # 挂载Lua脚本
+      - ./gateway/conf/lua:/etc/nginx/lua:ro
+    command: >
+      sh -c "
+        rm -f /etc/nginx/conf.d/default.conf &&
+        /usr/local/openresty/bin/openresty -g 'daemon off; error_log /dev/stderr notice;'
+      "
+    depends_on:
+      config-center:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - ai-gateway-dev-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://0.0.0.0:8080/health"]
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Prometheus - 时间序列数据库
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: ai-gateway-prometheus-dev
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data_dev:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    networks:
+      - ai-gateway-dev-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+
+volumes:
+  mysql_data_dev:
+  redis_data_dev:
+  token_models_dev:
+  token_cache_dev:
+  prometheus_data_dev:
+
+networks:
+  ai-gateway-dev-network:
+    driver: bridge

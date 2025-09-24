@@ -1,0 +1,52 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'ai-gateway'
+    environment: 'development'
+
+rule_files:
+  - "rules/*.yml"
+
+scrape_configs:
+  # 收集Gateway指标（来自Lua脚本）
+  - job_name: 'ai-gateway'
+    static_configs:
+      - targets: ['gateway:8080']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    honor_labels: true
+    relabel_configs:
+      # 添加实例标签
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '([^:]+):.*'
+        replacement: '${1}'
+      # 添加服务标签
+      - target_label: service
+        replacement: 'ai-gateway'
+
+  # 收集配置中心指标
+  - job_name: 'ai-gateway-config-center'
+    static_configs:
+      - targets: ['config-center:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    honor_labels: true
+
+  # 收集Token服务指标
+  - job_name: 'ai-gateway-token-service'
+    static_configs:
+      - targets: ['token-service:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+# 远程写入配置（可选，用于长期存储）
+# remote_write:
+#   - url: "http://victoriametrics:8428/api/v1/write"
+#     queue_config:
+#       max_samples_per_send: 1000
+#       batch_send_deadline: 5s
