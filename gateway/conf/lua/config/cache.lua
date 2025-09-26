@@ -50,9 +50,10 @@ end
 
 -- 获取命名空间缓存
 function _M.get_namespaces()
-    ngx.log(ngx.INFO, "CACHE: Getting namespaces from Redis, key: ", CACHE_KEYS.namespaces)
     local namespaces_data, err = redis.get(CACHE_KEYS.namespaces)
-    ngx.log(ngx.INFO, "CACHE: Redis get result - data type: ", type(namespaces_data), ", error: ", err or "none")
+    if err then
+        ngx.log(ngx.ERR, "CACHE: Redis error getting namespaces: ", err)
+    end
     
     if not namespaces_data or namespaces_data == ngx.null then
         ngx.log(ngx.WARN, "No namespaces data in Redis")
@@ -65,7 +66,6 @@ function _M.get_namespaces()
         return nil
     end
     
-    ngx.log(ngx.INFO, "CACHE: Successfully loaded ", #namespaces, " namespaces from Redis")
     return namespaces
 end
 
@@ -123,9 +123,9 @@ end
 -- 获取上游服务器缓存
 function _M.get_upstreams()
     local upstreams_data, err = redis.get(CACHE_KEYS.upstreams)
-    ngx.log(ngx.INFO, "Getting upstreams from Redis, key: ", CACHE_KEYS.upstreams)
-    ngx.log(ngx.INFO, "Upstreams data: ", upstreams_data or "nil")
-    ngx.log(ngx.INFO, "Redis error: ", err or "none")
+    if err then
+        ngx.log(ngx.ERR, "Redis error getting upstreams: ", err)
+    end
     
     if not upstreams_data or upstreams_data == ngx.null then
         ngx.log(ngx.WARN, "No upstreams data in Redis")
@@ -138,7 +138,6 @@ function _M.get_upstreams()
         return nil
     end
     
-    ngx.log(ngx.INFO, "Successfully parsed ", #upstreams, " upstreams")
     return upstreams
 end
 
@@ -219,7 +218,7 @@ function _M.get_all_configs()
     configs.policies = _M.get_policies() or {}
     configs.upstreams = _M.get_upstreams() or {}
     configs.locations = _M.get_locations() or {}
-    configs.matchers = _M.get_matchers() or {}
+    -- 匹配器信息已嵌入到命名空间数据中，不再需要单独的匹配器缓存
     
     return configs
 end

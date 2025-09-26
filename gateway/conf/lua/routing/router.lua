@@ -43,7 +43,7 @@ end
 
 -- 处理请求
 function _M.handle_request()
-    ngx.log(ngx.INFO, "=== ROUTER: Starting request handling ===")
+    ngx.log(ngx.ERR, "=== ROUTER: Starting request handling ===")
     
     local request_info = get_request_info()
     local request_id = ngx.var.http_x_request_id or ngx.var.request_id or ngx.var.connection .. "-" .. ngx.var.time_iso8601
@@ -51,21 +51,33 @@ function _M.handle_request()
     -- 记录请求开始时间
     local start_time = ngx.now()
     
-    ngx.log(ngx.INFO, "ROUTER: Request info - method: ", request_info.method, ", path: ", request_info.path, ", channelcode: ", request_info.headers["channelcode"] or "none")
+    ngx.log(ngx.ERR, "ROUTER: Request info - method: ", request_info.method, ", path: ", request_info.path, ", channelcode: ", request_info.headers["channelcode"] or "none")
     
     -- 跳过内部路径
     if request_info.path:match("^/health") or 
        request_info.path:match("^/stats") or 
        request_info.path:match("^/refresh%-config") then
+        ngx.log(ngx.ERR, "ROUTER: Skipping internal path: ", request_info.path)
         return
     end
     
     -- 记录请求日志
+    ngx.log(ngx.ERR, "!!! ROUTER: About to call logger.log_request_start")
     logger.log_request_start(request_id, request_info)
+    ngx.log(ngx.ERR, "!!! ROUTER: logger.log_request_start completed")
     
-    -- 匹配命名空间
-    ngx.log(ngx.INFO, "ROUTER: Starting namespace matching...")
-    local namespace_id = namespace_matcher.find_matching_namespace(request_info)
+    -- 匹配命名空间（使用Trie匹配器）
+    ngx.log(ngx.ERR, "!!! ROUTER: Starting namespace matching with Trie...")
+    ngx.log(ngx.ERR, "!!! ROUTER: About to call namespace_matcher.find_matching_namespace")
+    local ok, namespace = pcall(namespace_matcher.find_matching_namespace, request_info)
+    ngx.log(ngx.ERR, "!!! ROUTER: pcall result - ok: ", ok, ", namespace type: ", type(namespace))
+    if not ok then
+        ngx.log(ngx.ERR, "!!! ROUTER: Error in namespace matching: ", namespace)
+        namespace = nil
+    end
+    ngx.log(ngx.ERR, "!!! ROUTER: Namespace match result: ", namespace and "found" or "not found")
+    local namespace_id = namespace and namespace.namespace_id or nil
+    ngx.log(ngx.ERR, "!!! ROUTER: Namespace ID: ", namespace_id or "nil")
     if not namespace_id then
         ngx.log(ngx.WARN, "ROUTER: No matching namespace found for request: ", request_info.path)
         metrics.record_request(namespace_id, request_info, 404, ngx.now() - start_time)
@@ -92,9 +104,22 @@ function _M.handle_request()
     end
     
     -- 执行策略检查
-    ngx.log(ngx.INFO, "ROUTER: Starting policy enforcement for namespace: ", namespace_id)
+    ngx.log(ngx.ERR, "!!! ROUTER: Starting policy enforcement for namespace: ", namespace_id)
+    ngx.log(ngx.ERR, "!!! ROUTER: About to call policy_enforcer.enforce_namespace_policies")
+    
+    -- 检查策略执行器是否存在
+    if not policy_enforcer then
+        ngx.log(ngx.ERR, "!!! ROUTER: policy_enforcer is nil!")
+        return
+    end
+    
+    if not policy_enforcer.enforce_namespace_policies then
+        ngx.log(ngx.ERR, "!!! ROUTER: policy_enforcer.enforce_namespace_policies is nil!")
+        return
+    end
+    
     local policy_ok, policy_message = policy_enforcer.enforce_namespace_policies(namespace_id, request_info)
-    ngx.log(ngx.INFO, "ROUTER: Policy enforcement result - ok: ", policy_ok, ", message: ", policy_message or "none")
+    ngx.log(ngx.ERR, "!!! ROUTER: Policy enforcement result - ok: ", policy_ok, ", message: ", policy_message or "none")
     
     if not policy_ok then
         ngx.log(ngx.WARN, "ROUTER: Policy enforcement failed: ", policy_message)
@@ -110,7 +135,9 @@ function _M.handle_request()
     ngx.log(ngx.INFO, "ROUTER: Policy enforcement passed for namespace: ", namespace_id)
     
     -- 选择上游服务器
+    ngx.log(ngx.ERR, "ROUTER: Selecting upstream for namespace: ", namespace_id)
     local upstream = upstream_selector.select_upstream(namespace_id, request_info)
+    ngx.log(ngx.ERR, "ROUTER: Upstream selection result: ", upstream and "found" or "not found")
     if not upstream then
         ngx.log(ngx.ERR, "No available upstream server for namespace: ", namespace_id)
         metrics.record_request(namespace_id, request_info, 503, ngx.now() - start_time)

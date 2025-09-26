@@ -38,45 +38,45 @@ function _M.record_request(namespace_id, request_info, status, response_time)
         return
     end
     
-    -- 更新命名空间指标
-    local pipeline = redis_client:pipeline()
+    -- 更新命名空间指标 - 使用单独的Redis命令
+    local function safe_redis_command(command, ...)
+        local result, err = redis_client[command](redis_client, ...)
+        if not result then
+            ngx.log(ngx.ERR, "Redis command failed: ", command, " - ", err)
+        end
+        return result
+    end
     
     -- 增加总请求数
-    pipeline:incr(namespace_key .. ":total_requests")
-    pipeline:incr(GLOBAL_KEY .. ":total_requests")
+    safe_redis_command("incr", namespace_key .. ":total_requests")
+    safe_redis_command("incr", GLOBAL_KEY .. ":total_requests")
     
     -- 更新成功/失败请求数
     if status >= 200 and status < 400 then
-        pipeline:incr(namespace_key .. ":successful_requests")
+        safe_redis_command("incr", namespace_key .. ":successful_requests")
     else
-        pipeline:incr(namespace_key .. ":failed_requests")
-        pipeline:incr(GLOBAL_KEY .. ":total_errors")
+        safe_redis_command("incr", namespace_key .. ":failed_requests")
+        safe_redis_command("incr", GLOBAL_KEY .. ":total_errors")
     end
     
     -- 更新响应时间
     if response_time then
-        pipeline:incrbyfloat(namespace_key .. ":total_response_time", response_time)
-        pipeline:incrbyfloat(GLOBAL_KEY .. ":total_response_time", response_time)
+        safe_redis_command("incrbyfloat", namespace_key .. ":total_response_time", response_time)
+        safe_redis_command("incrbyfloat", GLOBAL_KEY .. ":total_response_time", response_time)
     end
     
     -- 更新状态码计数
     local status_key = tostring(status)
-    pipeline:incr(namespace_key .. ":status:" .. status_key)
+    safe_redis_command("incr", namespace_key .. ":status:" .. status_key)
     
     -- 更新最后请求时间
-    pipeline:set(namespace_key .. ":last_request_time", current_time)
-    pipeline:set(GLOBAL_KEY .. ":last_request_time", current_time)
+    safe_redis_command("set", namespace_key .. ":last_request_time", current_time)
+    safe_redis_command("set", GLOBAL_KEY .. ":last_request_time", current_time)
     
     -- 设置实例级别的指标（用于实例健康检查）
-    pipeline:hset(instance_key, "last_request_time", current_time)
-    pipeline:hset(instance_key, "status", "active")
-    pipeline:expire(instance_key, 300) -- 5分钟过期
-    
-    -- 执行管道操作
-    local results, err = pipeline:exec()
-    if not results then
-        ngx.log(ngx.ERR, "Failed to update metrics in Redis: ", err)
-    end
+    safe_redis_command("hset", instance_key, "last_request_time", current_time)
+    safe_redis_command("hset", instance_key, "status", "active")
+    safe_redis_command("expire", instance_key, 300) -- 5分钟过期
 end
 
 -- 增加并发请求计数

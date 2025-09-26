@@ -11,7 +11,6 @@ function _M.get_connection()
     local config = require "core.init"
     local redis_config = config.get_config().redis
     
-    ngx.log(ngx.INFO, "Connecting to Redis: ", redis_config.host, ":", redis_config.port, " (timeout: ", redis_config.timeout, ")")
     
     -- 使用配置中的超时时间
     red:set_timeout(redis_config.timeout)
@@ -22,7 +21,6 @@ function _M.get_connection()
         return nil, err
     end
     
-    ngx.log(ngx.INFO, "Successfully connected to Redis")
     
     -- 选择数据库
     if redis_config.db and redis_config.db ~= "0" then

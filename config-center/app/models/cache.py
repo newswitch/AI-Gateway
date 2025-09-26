@@ -331,7 +331,7 @@ class ConfigCache:
         """设置上游服务器缓存"""
         try:
             cache_key = self._get_cache_key("upstream", str(server_id))
-            await self.redis_client.set(cache_key, json.dumps(server_data, indent=2, ensure_ascii=False), ex=ttl or self.cache_ttl['upstream'])
+            await self.redis_client.set(cache_key, json.dumps(server_data, indent=2, ensure_ascii=False), ex=ttl or self.cache_ttl['upstream_servers'])
         except Exception as e:
             logger.error(f"设置上游服务器缓存失败: {str(e)}")
     
@@ -489,76 +489,90 @@ class ConfigCache:
         try:
             logger.info("开始同步数据库配置到Redis...")
             
-            # 同步命名空间
+            # 获取命名空间和匹配器数据（不单独缓存）
             namespaces = await self.db_manager.get_all_namespaces()
-            for namespace in namespaces:
-                await self.set_namespace(namespace['namespace_id'], namespace)
-            
-            # 同步报文匹配器
             matchers = await self.db_manager.get_all_matchers()
-            matchers_by_namespace = {}
-            for matcher in matchers:
-                namespace_id = matcher['namespace_id']
-                if namespace_id not in matchers_by_namespace:
-                    matchers_by_namespace[namespace_id] = []
-                matchers_by_namespace[namespace_id].append(matcher)
             
-            for namespace_id, namespace_matchers in matchers_by_namespace.items():
-                await self.set_matchers(namespace_id, namespace_matchers)
-            
-            # 同步命名空间规则
+            # 获取其他配置数据（不单独缓存）
             rules = await self.db_manager.get_all_rules()
-            rules_by_namespace = {}
-            for rule in rules:
-                namespace_id = rule['namespace_id']
-                if namespace_id not in rules_by_namespace:
-                    rules_by_namespace[namespace_id] = []
-                rules_by_namespace[namespace_id].append(rule)
-            
-            for namespace_id, namespace_rules in rules_by_namespace.items():
-                await self.set_rules(namespace_id, namespace_rules)
-            
-            # 同步上游服务器
             upstream_servers = await self.db_manager.get_all_upstream_servers()
-            for server in upstream_servers:
-                await self.set_upstream_server(server['server_id'], server)
+            location_rules = await self.db_manager.get_all_location_rules()
+            policies = await self.db_manager.get_all_policies()
             
-            # 存储上游服务器列表（网关需要的格式）
+            # 存储配置数据（网关需要的格式）
             if upstream_servers:
                 await self.redis_client.set("config:upstreams:all", json.dumps(upstream_servers, indent=2, ensure_ascii=False), ex=self.cache_ttl['upstream_servers'])
             
-            # 同步路由规则
-            location_rules = await self.db_manager.get_all_location_rules()
-            for location in location_rules:
-                await self.set_location(location['location_id'], location)
-            
-            # 存储路由规则列表（网关需要的格式）
             if location_rules:
                 await self.redis_client.set("config:locations:all", json.dumps(location_rules, indent=2, ensure_ascii=False), ex=self.cache_ttl['location_rules'])
             
-            # 同步策略配置
-            policies = await self.db_manager.get_all_policies()
-            for policy in policies:
-                await self.set_policy(policy['policy_id'], policy)
-            
-            # 存储策略列表（网关需要的格式）
             if policies:
                 await self.redis_client.set("config:policies:all", json.dumps(policies, indent=2, ensure_ascii=False), ex=self.cache_ttl['policies'])
+                
+                # 为每个策略创建基于namespace_code的单独key
+                for policy in policies:
+                    namespace_id = policy.get('namespace_id')
+                    if namespace_id:
+                        # 根据namespace_id找到对应的namespace_code
+                        namespace_code = None
+                        for namespace in namespaces:
+                            if namespace['namespace_id'] == namespace_id:
+                                namespace_code = namespace.get('namespace_code')
+                                break
+                        
+                        if namespace_code:
+                            key = f"config:policies:{namespace_code}"
+                            await self.redis_client.set(key, json.dumps(policy, indent=2, ensure_ascii=False), ex=self.cache_ttl['policies'])
             
-            # 存储命名空间列表（网关需要的格式）
-            if namespaces:
+            # 将匹配器信息嵌入到命名空间数据中，并创建基于匹配值的键
+            if namespaces and matchers:
+                # 创建匹配器映射
+                matchers_by_namespace = {}
+                for matcher in matchers:
+                    namespace_id = matcher['namespace_id']
+                    if namespace_id not in matchers_by_namespace:
+                        matchers_by_namespace[namespace_id] = []
+                    matchers_by_namespace[namespace_id].append(matcher)
+                
+                # 为每个命名空间添加匹配器信息
+                for namespace in namespaces:
+                    namespace_id = namespace['namespace_id']
+                    if namespace_id in matchers_by_namespace:
+                        # 取第一个匹配器（一对一关系）
+                        namespace['matcher'] = matchers_by_namespace[namespace_id][0]
+                    else:
+                        namespace['matcher'] = None
+                
+                # 存储合并后的命名空间列表（网关需要的格式）
                 await self.redis_client.set("config:namespaces:all", json.dumps(namespaces, indent=2, ensure_ascii=False), ex=self.cache_ttl['namespace'])
-            
-            # 存储匹配器列表（网关需要的格式）
-            if matchers:
-                await self.redis_client.set("config:matchers:all", safe_json_dumps(matchers), ex=self.cache_ttl['matchers'])
+                
+                # 为每个命名空间创建基于namespace_code的单独key
+                for namespace in namespaces:
+                    namespace_code = namespace.get('namespace_code')
+                    if namespace_code:
+                        key = f"config:namespaces:{namespace_code}"
+                        await self.redis_client.set(key, json.dumps(namespace, indent=2, ensure_ascii=False), ex=self.cache_ttl['namespace'])
+                
+            elif namespaces:
+                # 如果没有匹配器，也要存储命名空间
+                for namespace in namespaces:
+                    namespace['matcher'] = None
+                await self.redis_client.set("config:namespaces:all", json.dumps(namespaces, indent=2, ensure_ascii=False), ex=self.cache_ttl['namespace'])
+                
+                # 为每个命名空间创建基于namespace_code的单独key
+                for namespace in namespaces:
+                    namespace_code = namespace.get('namespace_code')
+                    if namespace_code:
+                        key = f"config:namespaces:{namespace_code}"
+                        await self.redis_client.set(key, json.dumps(namespace, indent=2, ensure_ascii=False), ex=self.cache_ttl['namespace'])
             
             logger.info(f"成功同步 {len(namespaces)} 个命名空间, {len(matchers)} 个匹配器, {len(rules)} 个规则, {len(upstream_servers)} 个上游服务器, {len(location_rules)} 个路由规则, {len(policies)} 个策略到Redis")
             return True
             
         except Exception as e:
             logger.error(f"同步数据库配置到Redis失败: {str(e)}")
-            return False 
+            return False
+    
 
     async def create_namespace_dual_write(self, namespace_data: Dict[str, Any]) -> int:
         """双写创建命名空间 - Redis和MySQL并行写入"""
@@ -1289,7 +1303,7 @@ class ConfigCache:
         """设置路由规则缓存"""
         try:
             cache_key = self._get_cache_key("locations", str(location_id))
-            await self.redis_client.set(cache_key, json.dumps(location_data, indent=2, ensure_ascii=False), ex=ttl or self.cache_ttl['locations'])
+            await self.redis_client.set(cache_key, json.dumps(location_data, indent=2, ensure_ascii=False), ex=ttl or self.cache_ttl['location_rules'])
         except Exception as e:
             logger.error(f"设置路由规则缓存失败: {str(e)}")
     

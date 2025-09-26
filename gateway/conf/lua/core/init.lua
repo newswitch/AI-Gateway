@@ -8,7 +8,7 @@ local config = {
     -- 配置中心设置
     config_center = {
         host = os.getenv("CONFIG_CENTER_HOST") or "ai-gateway-config-center-dev",
-        port = os.getenv("CONFIG_CENTER_PORT") or "8001",
+        port = os.getenv("CONFIG_CENTER_PORT") or "8000",
         timeout = 5000,  -- 5秒超时
         retry_times = 3
     },

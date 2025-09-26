@@ -67,9 +67,9 @@ local function enforce_token_limit(policy, request_info)
         end
         
         local token_response, err = http.post(token_service_url, request_json)
-        if token_response then
+        if token_response and token_response.body then
             -- 解析JSON响应
-            local response_data, parse_err = json.decode(token_response)
+            local response_data, parse_err = json.decode(token_response.body)
             if response_data and response_data.success then
                 input_tokens = response_data.token_count or 0
                 ngx.log(ngx.INFO, "Token calculation successful: ", input_tokens, " tokens for model: ", response_data.model or "unknown")
@@ -152,13 +152,16 @@ local function enforce_token_limit(policy, request_info)
         ngx.req.set_header("X-Token-Limit-Model", body_data.model or "Qwen3-8B")
         
     else
-        -- 非流式模式：预检查所有Token限制
-        ngx.log(ngx.INFO, "Non-streaming mode - pre-checking all token limits")
+        -- 非流式模式：预检查输入Token限制，输出Token限制通过流式监控处理
+        ngx.log(ngx.INFO, "Non-streaming mode - pre-checking input token limits, output limits via streaming monitor")
         
-        -- 检查输出Token限制
-        if final_output_limit > 0 and max_completion_tokens > final_output_limit then
-            ngx.log(ngx.WARN, "Output token limit exceeded: ", max_completion_tokens, " > ", final_output_limit)
-            return false, "Output token limit exceeded"
+        -- 设置流式Token限制到请求头，供body_filter_by_lua_block使用
+        if final_output_limit > 0 then
+            ngx.req.set_header("X-Token-Limit-Output", final_output_limit)
+            ngx.req.set_header("X-Token-Limit-Streaming", "true")
+            ngx.req.set_header("X-Token-Limit-Max-Tokens", max_completion_tokens)
+            ngx.req.set_header("X-Token-Limit-Model", body_data.model or "Qwen3-8B")
+            ngx.log(ngx.INFO, "Non-streaming mode - enabled output token monitoring with limit: ", final_output_limit)
         end
     end
     
@@ -260,8 +263,8 @@ function _M.calculate_output_tokens_with_service(text, model)
     end
     
     local token_response, err = http.post(token_service_url, request_json)
-    if token_response then
-        local response_data, parse_err = json.decode(token_response)
+    if token_response and token_response.body then
+        local response_data, parse_err = json.decode(token_response.body)
         if response_data and response_data.success then
             return response_data.token_count or 0
         else
@@ -407,8 +410,10 @@ function _M.enforce_policy(policy, request_info)
         return true, "Policy is nil"
     end
     
-    if not policy.is_active then
-        ngx.log(ngx.INFO, "Policy not active: ", policy.name or policy.policy_name or "unknown")
+    -- 检查策略是否活跃：status == 1 表示活跃
+    local is_active = (policy.status == 1) or (policy.is_active == true)
+    if not is_active then
+        ngx.log(ngx.INFO, "Policy not active: ", policy.name or policy.policy_name or "unknown", " (status: ", policy.status or "nil", ")")
         return true, "Policy not active"
     end
     
@@ -429,6 +434,44 @@ function _M.enforce_policy(policy, request_info)
     end
 end
 
+-- 通过namespace_code直接获取策略
+function _M._get_policies_by_namespace_code(namespace_code)
+    if not namespace_code then
+        return {}
+    end
+    
+    local redis = require "utils.redis"
+    local json = require "utils.json"
+    local red = redis.get_connection()
+    if not red then
+        ngx.log(ngx.ERR, "POLICY_ENFORCER: Failed to get Redis connection")
+        return {}
+    end
+    
+    local key = "config:policies:" .. namespace_code
+    local data, err = red:get(key)
+    red:close()
+    
+    if err then
+        ngx.log(ngx.ERR, "POLICY_ENFORCER: Redis error getting policies by namespace code: ", err)
+        return {}
+    end
+    
+    if not data or data == ngx.null then
+        ngx.log(ngx.WARN, "POLICY_ENFORCER: No policies found for namespace code: ", namespace_code)
+        return {}
+    end
+    
+    local policy, err = json.decode(data)
+    if not policy then
+        ngx.log(ngx.ERR, "POLICY_ENFORCER: Failed to parse policy data: ", err)
+        return {}
+    end
+    
+    -- 返回单个策略的数组
+    return {policy}
+end
+
 -- 执行命名空间的所有策略
 function _M.enforce_namespace_policies(namespace_id, request_info)
     ngx.log(ngx.INFO, "=== POLICY_ENFORCER: Starting policy enforcement ===")
@@ -436,7 +479,29 @@ function _M.enforce_namespace_policies(namespace_id, request_info)
     local cache = require "config.cache"
     local configs = cache.get_all_configs()
     
-    local policies = configs.policies or {}
+    -- 首先尝试通过namespace_code直接获取策略
+    local namespace_code = nil
+    local namespaces = configs.namespaces or {}
+    for _, namespace in ipairs(namespaces) do
+        if namespace.namespace_id == namespace_id then
+            namespace_code = namespace.namespace_code
+            break
+        end
+    end
+    
+    local policies = {}
+    if namespace_code then
+        ngx.log(ngx.INFO, "POLICY_ENFORCER: Found namespace_code: ", namespace_code, " for namespace_id: ", namespace_id)
+        policies = _M._get_policies_by_namespace_code(namespace_code)
+        ngx.log(ngx.INFO, "POLICY_ENFORCER: Found ", #policies, " policies via namespace_code")
+    end
+    
+    -- 如果通过namespace_code没有找到策略，回退到原来的方式
+    if #policies == 0 then
+        ngx.log(ngx.INFO, "POLICY_ENFORCER: No policies found via namespace_code, falling back to all policies")
+        policies = configs.policies or {}
+    end
+    
     local namespace_policies = {}
     
     ngx.log(ngx.INFO, "POLICY_ENFORCER: Enforcing policies for namespace_id: ", namespace_id, " (type: ", type(namespace_id), ")")

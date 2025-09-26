@@ -25,14 +25,26 @@ end
 
 -- 通用HTTP请求方法
 function _M.request(method, url, body, headers)
-    -- 解析URL
+    -- 解析URL - 修复端口解析问题
     local host, port, path = url:match("http://([^:/]+):?(%d*)(.*)")
     if not host then
         return nil, "Invalid URL format"
     end
     
-    port = port and tonumber(port) or 80
-    path = path == "" and "/" or path
+    -- 修复端口解析：如果端口为空或无效，使用默认端口
+    if port == "" or not port then
+        port = 80
+    else
+        port = tonumber(port)
+        if not port then
+            return nil, "Invalid port number"
+        end
+    end
+    
+    -- 修复路径解析：确保路径正确提取
+    if not path or path == "" then
+        path = "/"
+    end
     
     -- 确保路径以 / 开头
     if not path:match("^/") then
@@ -54,14 +66,18 @@ function _M.request(method, url, body, headers)
         request_headers["Content-Length"] = #body
     end
     
-    -- 构建查询参数
+    -- 构建查询参数 - 修复URL编码问题
     local query_string = "target_host=" .. ngx.escape_uri(host) .. 
                         "&target_port=" .. port .. 
-                        "&target_path=" .. ngx.escape_uri(path)
+                        "&target_path=" .. path
     
     -- 使用ngx.location.capture发送内部请求
     local res = ngx.location.capture(internal_path .. "?" .. query_string, {
-        method = ngx[method],
+        method = method == "GET" and ngx.HTTP_GET or 
+                 method == "POST" and ngx.HTTP_POST or
+                 method == "PUT" and ngx.HTTP_PUT or
+                 method == "DELETE" and ngx.HTTP_DELETE or
+                 ngx.HTTP_GET,
         body = body,
         headers = request_headers
     })

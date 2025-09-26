@@ -30,7 +30,7 @@ local function get_auth_headers()
     }
 end
 
--- 从Redis获取命名空间配置
+-- 从Redis获取命名空间配置（已包含匹配器信息）
 function _M.get_namespaces()
     local cache = require "config.cache"
     local namespaces = cache.get_namespaces()
@@ -40,18 +40,10 @@ function _M.get_namespaces()
         return {}
     end
     
-    -- 处理命名空间数据，添加匹配器信息
+    -- 处理命名空间数据，转换格式
     local processed_namespaces = {}
     for _, namespace in ipairs(namespaces) do
-        ngx.log(ngx.ERR, "Processing namespace: ", json.encode(namespace))
-        -- 获取匹配器信息
-        if namespace.namespace_id then
-            local matchers = _M.get_matchers_for_namespace(namespace.namespace_id)
-            ngx.log(ngx.ERR, "Found matchers for namespace ", namespace.namespace_id, ": ", matchers and #matchers or 0)
-            if matchers and #matchers > 0 then
-                namespace.matcher = matchers[1]  -- 取第一个匹配器
-            end
-        end
+        ngx.log(ngx.INFO, "LOADER: Processing namespace: ", namespace.namespace_code, " (id: ", namespace.namespace_id, ")")
         
         -- 转换为网关期望的格式
         local processed_namespace = {
@@ -59,9 +51,16 @@ function _M.get_namespaces()
             code = namespace.namespace_code,
             name = namespace.namespace_name,
             status = namespace.status == 1 and "enabled" or "disabled",
-            matcher = namespace.matcher
+            matcher = namespace.matcher  -- 匹配器信息已经包含在命名空间数据中
         }
-        ngx.log(ngx.ERR, "Processed namespace: ", json.encode(processed_namespace))
+        
+        -- 记录匹配器信息
+        if namespace.matcher then
+            ngx.log(ngx.INFO, "LOADER: Namespace ", namespace.namespace_code, " has matcher: ", namespace.matcher.match_field, " ", namespace.matcher.match_operator, " ", namespace.matcher.match_value)
+        else
+            ngx.log(ngx.WARN, "LOADER: Namespace ", namespace.namespace_code, " has no matcher")
+        end
+        
         table.insert(processed_namespaces, processed_namespace)
     end
     
@@ -76,10 +75,15 @@ function _M.get_matchers_for_namespace(namespace_id)
     
     -- 从Redis获取匹配器数据，使用配置中心的键名格式
     local matcher_key = "config:matchers:" .. namespace_id
+    ngx.log(ngx.INFO, "LOADER: Getting matchers for namespace ", namespace_id, " with key: ", matcher_key)
+    
     local matcher_data, err = redis.get(matcher_key)
     if not matcher_data or matcher_data == ngx.null then
+        ngx.log(ngx.WARN, "LOADER: No matcher data found for namespace ", namespace_id, " with key: ", matcher_key)
         return nil
     end
+    
+    ngx.log(ngx.INFO, "LOADER: Found matcher data for namespace ", namespace_id, ": ", matcher_data)
     
     local matchers, err = json.decode(matcher_data)
     if not matchers then
@@ -87,6 +91,7 @@ function _M.get_matchers_for_namespace(namespace_id)
         return nil
     end
     
+    ngx.log(ngx.INFO, "LOADER: Successfully loaded ", #matchers, " matchers for namespace ", namespace_id)
     return matchers
 end
 
