@@ -32,7 +32,7 @@ function _M.record_request(namespace_id, request_info, status, response_time)
     local instance_key = INSTANCE_PREFIX .. instance_id .. ":" .. namespace_id
     
     -- 使用 Redis 原子操作更新指标
-    local redis_client = redis.get_client()
+    local redis_client = redis.get_connection()
     if not redis_client then
         ngx.log(ngx.ERR, "Failed to get Redis client for metrics")
         return
@@ -89,7 +89,7 @@ function _M.incr_concurrent_requests(namespace_id)
     local namespace_key = NAMESPACE_PREFIX .. namespace_id
     local instance_key = INSTANCE_PREFIX .. instance_id .. ":" .. namespace_id
     
-    local redis_client = redis.get_client()
+    local redis_client = redis.get_connection()
     if not redis_client then
         return
     end
@@ -113,7 +113,7 @@ function _M.decr_concurrent_requests(namespace_id)
     local namespace_key = NAMESPACE_PREFIX .. namespace_id
     local instance_key = INSTANCE_PREFIX .. instance_id .. ":" .. namespace_id
     
-    local redis_client = redis.get_client()
+    local redis_client = redis.get_connection()
     if not redis_client then
         return
     end
@@ -142,7 +142,7 @@ function _M.get_namespace_metrics(namespace_id)
         }
     end
     
-    local redis_client = redis.get_client()
+    local redis_client = redis.get_connection()
     if not redis_client then
         return {
             total_requests = 0,
@@ -203,7 +203,7 @@ end
 
 -- 获取全局指标
 function _M.get_global_metrics()
-    local redis_client = redis.get_client()
+    local redis_client = redis.get_connection()
     if not redis_client then
         return {
             total_requests = 0,
@@ -241,7 +241,7 @@ end
 -- 获取所有命名空间指标
 function _M.get_all_namespace_metrics()
     local result = {}
-    local redis_client = redis.get_client()
+    local redis_client = redis.get_connection()
     if not redis_client then
         return result
     end
@@ -261,7 +261,7 @@ end
 -- 获取实例健康状态
 function _M.get_instance_health()
     local result = {}
-    local redis_client = redis.get_client()
+    local redis_client = redis.get_connection()
     if not redis_client then
         return result
     end
@@ -357,7 +357,7 @@ end
 
 -- 重置所有指标
 function _M.reset_metrics()
-    local redis_client = redis.get_client()
+    local redis_client = redis.get_connection()
     if not redis_client then
         return
     end

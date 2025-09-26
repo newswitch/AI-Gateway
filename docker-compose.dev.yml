@@ -16,7 +16,7 @@ services:
     networks:
       - ai-gateway-dev-network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
       timeout: 20s
       retries: 10
 
@@ -32,7 +32,7 @@ services:
     networks:
       - ai-gateway-dev-network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       timeout: 20s
       retries: 10
 
@@ -56,7 +56,7 @@ services:
     networks:
       - ai-gateway-dev-network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8000/health"]
+      test: [ "CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8000/health" ]
       timeout: 30s
       retries: 5
       start_period: 60s
@@ -78,7 +78,7 @@ services:
     networks:
       - ai-gateway-dev-network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8003/health"]
+      test: [ "CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8003/health" ]
       timeout: 20s
       retries: 10
 
@@ -116,7 +116,7 @@ services:
     networks:
       - ai-gateway-dev-network
     healthcheck:
-      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')"]
+      test: [ "CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')" ]
       timeout: 30s
       retries: 5
       start_period: 40s
@@ -149,7 +149,7 @@ services:
     networks:
       - ai-gateway-dev-network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://0.0.0.0:3000"]
+      test: [ "CMD", "wget", "--quiet", "--tries=1", "--spider", "http://0.0.0.0:3000" ]
       timeout: 10s
       retries: 3
       start_period: 30s
@@ -165,12 +165,12 @@ services:
     container_name: ai-gateway-gateway-dev
     restart: unless-stopped
     ports:
-      - "8080:8080"  # 网关端口
+      - "8080:8080" # 网关端口
     environment:
       # 配置中心地址
-      CONFIG_CENTER_URL: http://config-center:8000
+      CONFIG_CENTER_URL: http://ai-gateway-config-center-dev:8000
       # Redis地址
-      REDIS_URL: redis://redis:6379/0
+      REDIS_URL: redis://ai-gateway-redis-dev:6379/0
       # Prometheus配置
       PROMETHEUS_ENABLED: true
       # 调试模式
@@ -196,7 +196,7 @@ services:
     networks:
       - ai-gateway-dev-network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://0.0.0.0:8080/health"]
+      test: [ "CMD", "wget", "--quiet", "--tries=1", "--spider", "http://0.0.0.0:8080/health" ]
       timeout: 10s
       retries: 3
       start_period: 30s
@@ -219,11 +219,10 @@ services:
     networks:
       - ai-gateway-dev-network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      test: [ "CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy" ]
       timeout: 10s
       retries: 3
       start_period: 30s
-
 
 volumes:
   mysql_data_dev:
@@ -231,6 +230,7 @@ volumes:
   token_models_dev:
   token_cache_dev:
   prometheus_data_dev:
+
 
 networks:
   ai-gateway-dev-network:

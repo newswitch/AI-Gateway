@@ -52,7 +52,7 @@ end
 function _M.get_namespaces()
     ngx.log(ngx.INFO, "CACHE: Getting namespaces from Redis, key: ", CACHE_KEYS.namespaces)
     local namespaces_data, err = redis.get(CACHE_KEYS.namespaces)
-    ngx.log(ngx.INFO, "CACHE: Redis get result - data length: ", namespaces_data and #namespaces_data or 0, ", error: ", err or "none")
+    ngx.log(ngx.INFO, "CACHE: Redis get result - data type: ", type(namespaces_data), ", error: ", err or "none")
     
     if not namespaces_data or namespaces_data == ngx.null then
         ngx.log(ngx.WARN, "No namespaces data in Redis")
