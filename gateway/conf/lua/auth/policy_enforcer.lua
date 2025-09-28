@@ -6,6 +6,7 @@ local json = require "utils.json"
 local redis = require "utils.redis"
 local http = require "utils.http"
 local core = require "core.init"
+local token_calculator = require "utils.token_calculator"
 
 local _M = {}
 
@@ -225,8 +226,8 @@ function _M.monitor_streaming_tokens(response_chunk)
     -- 获取当前累积的Token数量
     local current_tokens = tonumber(ngx.var.streaming_token_count) or 0
     
-    -- 使用token-count服务计算当前块的Token数量
-    local chunk_tokens = _M.calculate_output_tokens_with_service(response_chunk, model)
+    -- 使用子请求方式计算当前块的Token数量
+    local chunk_tokens = token_calculator.calculate_tokens_with_subrequest(response_chunk, model)
     current_tokens = current_tokens + chunk_tokens
     
     -- 检查是否超过限制
