@@ -511,6 +511,7 @@ class ConfigCache:
                 
                 # 为每个策略创建基于namespace_code的单独key
                 for policy in policies:
+                    # 处理直接关联的namespace_id
                     namespace_id = policy.get('namespace_id')
                     if namespace_id:
                         # 根据namespace_id找到对应的namespace_code
@@ -523,6 +524,27 @@ class ConfigCache:
                         if namespace_code:
                             key = f"config:policies:{namespace_code}"
                             await self.redis_client.set(key, json.dumps(policy, indent=2, ensure_ascii=False), ex=self.cache_ttl['policies'])
+                    
+                    # 处理namespaces数组中的关联
+                    policy_namespaces = policy.get('namespaces', [])
+                    if policy_namespaces and isinstance(policy_namespaces, list):
+                        for ns in policy_namespaces:
+                            if isinstance(ns, dict):
+                                ns_id = ns.get('id')
+                                ns_code = ns.get('code')
+                            else:
+                                # 如果namespaces数组直接包含namespace_id
+                                ns_id = ns
+                                ns_code = None
+                                # 根据namespace_id找到对应的namespace_code
+                                for namespace in namespaces:
+                                    if namespace['namespace_id'] == int(ns_id):
+                                        ns_code = namespace.get('namespace_code')
+                                        break
+                            
+                            if ns_code:
+                                key = f"config:policies:{ns_code}"
+                                await self.redis_client.set(key, json.dumps(policy, indent=2, ensure_ascii=False), ex=self.cache_ttl['policies'])
             
             # 将匹配器信息嵌入到命名空间数据中，并创建基于匹配值的键
             if namespaces and matchers:

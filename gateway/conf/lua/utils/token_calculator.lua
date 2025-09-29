@@ -6,7 +6,7 @@ local core = require "core.init"
 
 local _M = {}
 
--- 使用子请求计算token数量
+-- 使用子请求计算token数量（仅适用于access阶段）
 function _M.calculate_tokens_with_subrequest(text, model)
     -- 使用内部token计算location
     local query_string = "text=" .. ngx.escape_uri(text) .. 
@@ -77,13 +77,5 @@ function _M.estimate_tokens(text, model)
     end
 end
 
--- 混合模式：结合子请求和估算
-function _M.calculate_tokens_hybrid(text, model, use_subrequest)
-    if use_subrequest then
-        return _M.calculate_tokens_with_subrequest(text, model)
-    else
-        return _M.estimate_tokens(text, model)
-    end
-end
 
 return _M

@@ -168,7 +168,7 @@ local function enforce_token_limit(policy, request_info)
     
     -- 检查时间窗口限制
     if enable_time_window and window_max_tokens > 0 then
-        local namespace_id = policy.namespace_id
+        local namespace_id = tostring(policy.namespace_id or "")
         local time_key = "token_usage:" .. namespace_id .. ":" .. math.floor(ngx.time() / (time_window_minutes * 60))
         
         local current_usage, err = redis.get(time_key)
@@ -226,8 +226,8 @@ function _M.monitor_streaming_tokens(response_chunk)
     -- 获取当前累积的Token数量
     local current_tokens = tonumber(ngx.var.streaming_token_count) or 0
     
-    -- 使用子请求方式计算当前块的Token数量
-    local chunk_tokens = token_calculator.calculate_tokens_with_subrequest(response_chunk, model)
+    -- 在body_filter阶段只能使用估算方式计算Token数量
+    local chunk_tokens = token_calculator.estimate_tokens(response_chunk, model)
     current_tokens = current_tokens + chunk_tokens
     
     -- 检查是否超过限制
@@ -289,7 +289,7 @@ local function enforce_qps_limit(policy, request_info)
         return true, "QPS limit not configured"
     end
     
-    local namespace_id = policy.namespace_id
+    local namespace_id = tostring(policy.namespace_id or "")
     local current_time = ngx.time()
     local window_key = "qps:" .. namespace_id .. ":" .. math.floor(current_time / time_window)
     
@@ -320,7 +320,18 @@ local function enforce_concurrency_limit(policy, request_info)
         return true, "Concurrency limit not configured"
     end
     
-    local namespace_id = policy.namespace_id
+    -- 获取namespace_id，优先从namespaces数组获取
+    local namespace_id = nil
+    if policy.namespaces and #policy.namespaces > 0 then
+        namespace_id = policy.namespaces[1].id
+    elseif policy.namespace_id then
+        namespace_id = tostring(policy.namespace_id)
+    end
+    
+    if not namespace_id then
+        return true, "No namespace ID found for concurrency limit"
+    end
+    
     local concurrency_key = "concurrent:" .. namespace_id
     
     local current_count, err = redis.get(concurrency_key)
@@ -566,11 +577,31 @@ end
 -- 减少并发计数（在请求结束时调用）
 function _M.decrease_concurrency_count(namespace_id)
     local concurrency_key = "concurrent:" .. namespace_id
-    local current_count, err = redis.get(concurrency_key)
     
-    if current_count and tonumber(current_count) > 0 then
-        redis.execute_command("decr", concurrency_key)
+    -- 在log_by_lua阶段直接创建Redis连接
+    local redis = require "resty.redis"
+    local red = redis:new()
+    
+    -- 连接Redis
+    red:set_timeout(1000)  -- 超时时间1秒
+    local ok, err = red:connect("redis", 6379)  -- 使用Docker服务名
+    if not ok then
+        ngx.log(ngx.ERR, "POLICY_ENFORCER: Redis连接失败: ", err)
+        return
     end
+    
+    -- 原子递减并发数
+    local count, err = red:decr(concurrency_key)
+    if not count then
+        ngx.log(ngx.ERR, "POLICY_ENFORCER: Redis DECR失败: ", err)
+        red:close()
+        return
+    end
+    
+    ngx.log(ngx.INFO, "POLICY_ENFORCER: Decreased concurrency count for namespace: ", namespace_id, " to: ", count)
+    
+    -- 关闭连接（log_by_lua阶段不能使用连接池）
+    red:close()
 end
 
 return _M
