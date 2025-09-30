@@ -4,13 +4,18 @@ local json = require "utils.json"
 
 local _M = {}
 
--- 获取Redis连接
+-- 连接池配置
+local pool_config = {
+    max_idle_timeout = 60000,  -- 60秒空闲超时
+    pool_size = 100            -- 连接池大小
+}
+
+-- 获取Redis连接（支持连接池）
 function _M.get_connection()
     local red = redis:new()
     
     local config = require "core.init"
     local redis_config = config.get_config().redis
-    
     
     -- 使用配置中的超时时间
     red:set_timeout(redis_config.timeout)
@@ -20,7 +25,6 @@ function _M.get_connection()
         ngx.log(ngx.ERR, "Failed to connect to Redis: ", err)
         return nil, err
     end
-    
     
     -- 选择数据库
     if redis_config.db and redis_config.db ~= "0" then
@@ -35,6 +39,20 @@ function _M.get_connection()
     return red
 end
 
+-- 关闭Redis连接（支持连接池）
+function _M.close_connection(red)
+    if not red then
+        return
+    end
+    
+    -- 将连接放回连接池而不是直接关闭
+    local ok, err = red:set_keepalive(pool_config.max_idle_timeout, pool_config.pool_size)
+    if not ok then
+        ngx.log(ngx.ERR, "Failed to set keepalive: ", err)
+        red:close()
+    end
+end
+
 -- 执行Redis命令
 function _M.execute_command(command, ...)
     local red, err = _M.get_connection()
@@ -43,7 +61,7 @@ function _M.execute_command(command, ...)
     end
     
     local result, err = red[command](red, ...)
-    red:close()
+    _M.close_connection(red)  -- 使用连接池
     
     if not result then
         ngx.log(ngx.ERR, "Redis command failed: ", err)
@@ -134,7 +152,7 @@ function _M.incr_ex(key, ttl)
         red:expire(key, ttl)
     end
     
-    red:close()
+    _M.close_connection(red)  -- 使用连接池
     return result, err
 end
 
@@ -150,7 +168,7 @@ function _M.incrby_ex(key, increment, ttl)
         red:expire(key, ttl)
     end
     
-    red:close()
+    _M.close_connection(red)  -- 使用连接池
     return result, err
 end
 
@@ -162,7 +180,7 @@ function _M.ping()
     end
     
     local result, err = red:ping()
-    red:close()
+    _M.close_connection(red)  -- 使用连接池
     
     return result == "PONG", err
 end

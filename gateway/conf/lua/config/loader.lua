@@ -43,7 +43,10 @@ function _M.get_namespaces()
     -- 处理命名空间数据，转换格式
     local processed_namespaces = {}
     for _, namespace in ipairs(namespaces) do
-        ngx.log(ngx.INFO, "LOADER: Processing namespace: ", namespace.namespace_code, " (id: ", namespace.namespace_id, ")")
+        -- 只在DEBUG模式下输出详细日志
+        if ngx.var.debug == "true" then
+            ngx.log(ngx.INFO, "LOADER: Processing namespace: ", namespace.namespace_code, " (id: ", namespace.namespace_id, ")")
+        end
         
         -- 转换为网关期望的格式
         local processed_namespace = {
@@ -54,17 +57,20 @@ function _M.get_namespaces()
             matcher = namespace.matcher  -- 匹配器信息已经包含在命名空间数据中
         }
         
-        -- 记录匹配器信息
-        if namespace.matcher then
-            ngx.log(ngx.INFO, "LOADER: Namespace ", namespace.namespace_code, " has matcher: ", namespace.matcher.match_field, " ", namespace.matcher.match_operator, " ", namespace.matcher.match_value)
-        else
-            ngx.log(ngx.WARN, "LOADER: Namespace ", namespace.namespace_code, " has no matcher")
+        -- 只在DEBUG模式下记录匹配器信息
+        if ngx.var.debug == "true" then
+            if namespace.matcher then
+                ngx.log(ngx.INFO, "LOADER: Namespace ", namespace.namespace_code, " has matcher: ", namespace.matcher.match_field, " ", namespace.matcher.match_operator, " ", namespace.matcher.match_value)
+            else
+                ngx.log(ngx.WARN, "LOADER: Namespace ", namespace.namespace_code, " has no matcher")
+            end
         end
         
         table.insert(processed_namespaces, processed_namespace)
     end
     
-    ngx.log(ngx.INFO, "Loaded ", #processed_namespaces, " namespaces from cache")
+    -- 只记录加载结果，不记录详细信息
+    ngx.log(ngx.NOTICE, "LOADER: Loaded ", #processed_namespaces, " namespaces from cache")
     return processed_namespaces
 end
 

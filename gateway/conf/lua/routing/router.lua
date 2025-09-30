@@ -37,7 +37,8 @@ local function get_request_info()
         host = ngx.var.host,
         user_agent = headers["User-Agent"] or "",
         content_type = headers["Content-Type"] or "",
-        content_length = headers["Content-Length"] or "0"
+        content_length = headers["Content-Length"] or "0",
+        namespace_code = nil  -- 将在匹配命名空间后设置
     }
 end
 
@@ -67,6 +68,7 @@ function _M.handle_request()
     end
     
     local namespace_id = namespace and (namespace.namespace_id or namespace.id) or nil
+    local namespace_code = namespace and (namespace.namespace_code or namespace.code) or nil
     if not namespace_id then
         ngx.log(ngx.WARN, "ROUTER: No matching namespace found for request: ", request_info.path)
         metrics.record_request(namespace_id, request_info, 404, ngx.now() - start_time)
@@ -77,6 +79,9 @@ function _M.handle_request()
         ngx.say('{"error": "namespace_not_found", "message": "No matching namespace found for this request"}')
         ngx.exit(404)
     end
+    
+    -- 设置request_info中的namespace_code
+    request_info.namespace_code = namespace_code
     
     -- 验证命名空间是否有效
     if not namespace_matcher.is_namespace_valid(namespace_id) then
@@ -120,10 +125,13 @@ function _M.handle_request()
     end
     
     -- 设置请求上下文
+    ngx.log(ngx.INFO, "ROUTER: Setting context - namespace_id: ", namespace_id, ", namespace_code: ", namespace_code, ", request_id: ", request_id)
     ngx.ctx.namespace_id = namespace_id
+    ngx.ctx.namespace_code = namespace_code
     ngx.ctx.upstream = upstream
     ngx.ctx.request_id = request_id
     ngx.ctx.start_time = start_time
+    ngx.log(ngx.INFO, "ROUTER: Context set successfully - namespace_id: ", ngx.ctx.namespace_id, ", namespace_code: ", ngx.ctx.namespace_code, ", request_id: ", ngx.ctx.request_id)
     
     -- 代理到上游服务器
     local success, err = proxy_handler.proxy_to_upstream(upstream, request_info)
@@ -143,42 +151,47 @@ function _M.handle_request()
     end
 end
 
--- 处理请求结束（在log_by_lua阶段调用）
-function _M.handle_request_end()
-    -- 避免重复执行
-    if ngx.ctx.request_ended then
-        return
-    end
-    ngx.ctx.request_ended = true
-    
+-- 处理请求结束（在timer中异步调用）
+function _M.handle_request_end(namespace_id, namespace_code, request_id, start_time, request_uri, status)
     -- 跳过健康检查等内部请求
-    local request_uri = ngx.var.request_uri or ""
-    if request_uri:match("^/health") or 
+    if request_uri and (request_uri:match("^/health") or 
        request_uri:match("^/stats") or 
-       request_uri:match("^/metrics") then
+       request_uri:match("^/metrics")) then
+        -- 只记录成功状态，减少日志噪音
+        ngx.log(ngx.NOTICE, "ROUTER: Internal request completed: ", request_uri)
         return
     end
     
-    local namespace_id = ngx.ctx.namespace_id
-    local request_id = ngx.ctx.request_id
-    local start_time = ngx.ctx.start_time
+    -- 业务请求才输出详细日志
+    ngx.log(ngx.INFO, "=== ROUTER: handle_request_end called (in timer) ===")
+    ngx.log(ngx.INFO, "ROUTER: Context data - namespace_id: ", namespace_id or "nil", 
+           ", namespace_code: ", namespace_code or "nil", ", request_id: ", request_id or "nil", ", start_time: ", start_time or "nil")
+    ngx.log(ngx.INFO, "ROUTER: Request URI: ", request_uri or "nil")
     
     if namespace_id and request_id and start_time then
         local response_time = ngx.now() - start_time
-        local status = ngx.status
+        
+        ngx.log(ngx.INFO, "ROUTER: Request completed - status: ", status or "nil", ", response_time: ", response_time)
         
         -- 记录请求结束日志
         logger.log_request_end(request_id, status, "Request completed")
         
         -- 减少并发计数
-        if namespace_id then
-            ngx.log(ngx.INFO, "ROUTER: Decreasing concurrency count for namespace: ", namespace_id)
-            policy_enforcer.decrease_concurrency_count(namespace_id)
+        if namespace_code then
+            ngx.log(ngx.INFO, "ROUTER: Calling decrease_concurrency_count for namespace_code: ", namespace_code)
+            local success, err = policy_enforcer.decrease_concurrency_count(namespace_code)
+            if success then
+                ngx.log(ngx.INFO, "ROUTER: decrease_concurrency_count completed successfully")
+            else
+                ngx.log(ngx.ERR, "ROUTER: decrease_concurrency_count failed: ", err or "unknown error")
+            end
         end
     else
         ngx.log(ngx.WARN, "ROUTER: Missing context data for request end - namespace_id: ", namespace_id or "nil", 
                ", request_id: ", request_id or "nil", ", start_time: ", start_time or "nil")
     end
+    
+    ngx.log(ngx.INFO, "=== ROUTER: handle_request_end completed (in timer) ===")
 end
 
 return _M

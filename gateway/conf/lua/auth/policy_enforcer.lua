@@ -320,19 +320,14 @@ local function enforce_concurrency_limit(policy, request_info)
         return true, "Concurrency limit not configured"
     end
     
-    -- 获取namespace_id，优先从namespaces数组获取
-    local namespace_id = nil
-    if policy.namespaces and #policy.namespaces > 0 then
-        namespace_id = policy.namespaces[1].id
-    elseif policy.namespace_id then
-        namespace_id = tostring(policy.namespace_id)
+    -- 从request_info中获取namespace_code
+    local namespace_code = request_info.namespace_code
+    
+    if not namespace_code then
+        return true, "No namespace code found for concurrency limit"
     end
     
-    if not namespace_id then
-        return true, "No namespace ID found for concurrency limit"
-    end
-    
-    local concurrency_key = "concurrent:" .. namespace_id
+    local concurrency_key = "concurrent:" .. namespace_code
     
     local current_count, err = redis.get(concurrency_key)
     if not current_count then
@@ -574,34 +569,49 @@ function _M.enforce_namespace_policies(namespace_id, request_info)
     return true, "All policies passed"
 end
 
--- 减少并发计数（在请求结束时调用）
-function _M.decrease_concurrency_count(namespace_id)
-    local concurrency_key = "concurrent:" .. namespace_id
+-- 减少并发计数（在timer中异步调用）
+function _M.decrease_concurrency_count(namespace_code)
+    ngx.log(ngx.INFO, "=== POLICY_ENFORCER: decrease_concurrency_count called (in timer) ===")
+    ngx.log(ngx.INFO, "POLICY_ENFORCER: namespace_code: ", namespace_code or "nil", ", type: ", type(namespace_code))
     
-    -- 在log_by_lua阶段直接创建Redis连接
-    local redis = require "resty.redis"
-    local red = redis:new()
+    local concurrency_key = "concurrent:" .. namespace_code
+    ngx.log(ngx.INFO, "POLICY_ENFORCER: concurrency_key: ", concurrency_key)
     
-    -- 连接Redis
-    red:set_timeout(1000)  -- 超时时间1秒
-    local ok, err = red:connect("redis", 6379)  -- 使用Docker服务名
-    if not ok then
-        ngx.log(ngx.ERR, "POLICY_ENFORCER: Redis连接失败: ", err)
-        return
+    -- 在timer中可以使用Redis连接池
+    local redis = require "utils.redis"
+    local red = redis.get_connection()
+    
+    if not red then
+        ngx.log(ngx.ERR, "POLICY_ENFORCER: 无法获取Redis连接")
+        return false, "Cannot get Redis connection"
     end
     
+    -- 先获取当前值
+    local current_count, err = red:get(concurrency_key)
+    if err then
+        ngx.log(ngx.ERR, "POLICY_ENFORCER: Redis GET失败: ", err)
+        redis.close_connection(red)
+        return false, "Redis GET failed: " .. err
+    end
+    ngx.log(ngx.INFO, "POLICY_ENFORCER: 当前并发计数: ", current_count or "nil")
+    
     -- 原子递减并发数
+    ngx.log(ngx.INFO, "POLICY_ENFORCER: 执行DECR操作...")
     local count, err = red:decr(concurrency_key)
     if not count then
         ngx.log(ngx.ERR, "POLICY_ENFORCER: Redis DECR失败: ", err)
-        red:close()
-        return
+        redis.close_connection(red)
+        return false, "Redis DECR failed: " .. (err or "unknown error")
     end
     
-    ngx.log(ngx.INFO, "POLICY_ENFORCER: Decreased concurrency count for namespace: ", namespace_id, " to: ", count)
+    ngx.log(ngx.INFO, "POLICY_ENFORCER: DECR操作成功 - key: ", concurrency_key, ", 新值: ", count)
     
-    -- 关闭连接（log_by_lua阶段不能使用连接池）
-    red:close()
+    -- 归还连接到连接池
+    redis.close_connection(red)
+    ngx.log(ngx.INFO, "POLICY_ENFORCER: Redis连接已归还到连接池")
+    ngx.log(ngx.INFO, "=== POLICY_ENFORCER: decrease_concurrency_count completed (in timer) ===")
+    
+    return true, "Success"
 end
 
 return _M

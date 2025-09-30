@@ -59,7 +59,7 @@ function _M.decode(str)
         end
         
         if not valid_utf8 then
-            ngx.log(ngx.WARN, "Invalid UTF-8 string detected, attempting to fix")
+            ngx.log(ngx.NOTICE, "Invalid UTF-8 string detected, attempting to fix")
             -- 尝试修复UTF-8编码
             utf8_str = string.gsub(str, "[\128-\255]", function(c)
                 return string.format("\\u%04x", string.byte(c))
