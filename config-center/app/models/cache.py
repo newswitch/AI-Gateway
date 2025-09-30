@@ -509,7 +509,9 @@ class ConfigCache:
             if policies:
                 await self.redis_client.set("config:policies:all", json.dumps(policies, indent=2, ensure_ascii=False), ex=self.cache_ttl['policies'])
                 
-                # 为每个策略创建基于namespace_code的单独key
+                # 按namespace_code分组策略
+                policies_by_namespace = {}
+                
                 for policy in policies:
                     # 处理直接关联的namespace_id
                     namespace_id = policy.get('namespace_id')
@@ -522,8 +524,9 @@ class ConfigCache:
                                 break
                         
                         if namespace_code:
-                            key = f"config:policies:{namespace_code}"
-                            await self.redis_client.set(key, json.dumps(policy, indent=2, ensure_ascii=False), ex=self.cache_ttl['policies'])
+                            if namespace_code not in policies_by_namespace:
+                                policies_by_namespace[namespace_code] = []
+                            policies_by_namespace[namespace_code].append(policy)
                     
                     # 处理namespaces数组中的关联
                     policy_namespaces = policy.get('namespaces', [])
@@ -543,8 +546,16 @@ class ConfigCache:
                                         break
                             
                             if ns_code:
-                                key = f"config:policies:{ns_code}"
-                                await self.redis_client.set(key, json.dumps(policy, indent=2, ensure_ascii=False), ex=self.cache_ttl['policies'])
+                                if ns_code not in policies_by_namespace:
+                                    policies_by_namespace[ns_code] = []
+                                # 避免重复添加同一个策略
+                                if policy not in policies_by_namespace[ns_code]:
+                                    policies_by_namespace[ns_code].append(policy)
+                
+                # 为每个namespace_code存储所有相关策略
+                for namespace_code, namespace_policies in policies_by_namespace.items():
+                    key = f"config:policies:{namespace_code}"
+                    await self.redis_client.set(key, json.dumps(namespace_policies, indent=2, ensure_ascii=False), ex=self.cache_ttl['policies'])
             
             # 将匹配器信息嵌入到命名空间数据中，并创建基于匹配值的键
             if namespaces and matchers:

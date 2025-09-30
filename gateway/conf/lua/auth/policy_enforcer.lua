@@ -469,14 +469,23 @@ function _M._get_policies_by_namespace_code(namespace_code)
         return {}
     end
     
-    local policy, err = json.decode(data)
-    if not policy then
+    local policies, err = json.decode(data)
+    if not policies then
         ngx.log(ngx.ERR, "POLICY_ENFORCER: Failed to parse policy data: ", err)
         return {}
     end
     
-    -- 返回单个策略的数组
-    return {policy}
+    -- 确保返回的是数组格式
+    if type(policies) == "table" and policies[1] then
+        -- 已经是数组格式
+        return policies
+    elseif type(policies) == "table" then
+        -- 单个策略对象，包装成数组
+        return {policies}
+    else
+        ngx.log(ngx.ERR, "POLICY_ENFORCER: Invalid policy data format")
+        return {}
+    end
 end
 
 -- 执行命名空间的所有策略
