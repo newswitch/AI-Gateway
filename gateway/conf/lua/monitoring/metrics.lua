@@ -128,6 +128,93 @@ function _M.record_request(namespace_id, request_info, status, response_time)
     safe_redis_command("expire", instance_key, 300) -- 5分钟过期
 end
 
+-- 记录Token使用量
+function _M.record_token_usage(namespace_id, model_name, token_count, request_info)
+    if not namespace_id or not token_count or token_count <= 0 then
+        return
+    end
+    
+    local namespace_code = get_namespace_code(namespace_id)
+    local namespace_key = NAMESPACE_PREFIX .. namespace_code
+    local model_key = namespace_key .. ":model:" .. (model_name or "unknown")
+    
+    local redis_client = redis.get_connection()
+    if not redis_client then
+        ngx.log(ngx.ERR, "Failed to get Redis client for token metrics")
+        return
+    end
+    
+    local function safe_redis_command(command, ...)
+        local result, err = redis_client[command](redis_client, ...)
+        if not result then
+            ngx.log(ngx.ERR, "Redis command failed: ", command, " - ", err)
+        end
+        return result
+    end
+    
+    -- 记录命名空间总Token使用量
+    safe_redis_command("incrby", namespace_key .. ":total_tokens", token_count)
+    safe_redis_command("incrby", GLOBAL_KEY .. ":total_tokens", token_count)
+    
+    -- 记录模型Token使用量
+    safe_redis_command("incrby", model_key .. ":tokens", token_count)
+    safe_redis_command("incrby", model_key .. ":requests", 1)
+    
+    -- 记录路由Token使用量（如果有路由信息）
+    if request_info and request_info.path then
+        local route_key = namespace_key .. ":route:" .. request_info.path
+        safe_redis_command("incrby", route_key .. ":tokens", token_count)
+        safe_redis_command("incrby", route_key .. ":requests", 1)
+        safe_redis_command("expire", route_key .. ":tokens", 86400) -- 24小时过期
+        safe_redis_command("expire", route_key .. ":requests", 86400)
+    end
+    
+    -- 设置过期时间
+    safe_redis_command("expire", model_key .. ":tokens", 86400) -- 24小时过期
+    safe_redis_command("expire", model_key .. ":requests", 86400)
+end
+
+-- 记录路由使用次数
+function _M.record_route_usage(namespace_id, request_info, status)
+    if not namespace_id or not request_info or not request_info.path then
+        return
+    end
+    
+    local namespace_code = get_namespace_code(namespace_id)
+    local namespace_key = NAMESPACE_PREFIX .. namespace_code
+    local route_key = namespace_key .. ":route:" .. request_info.path
+    
+    local redis_client = redis.get_connection()
+    if not redis_client then
+        ngx.log(ngx.ERR, "Failed to get Redis client for route metrics")
+        return
+    end
+    
+    local function safe_redis_command(command, ...)
+        local result, err = redis_client[command](redis_client, ...)
+        if not result then
+            ngx.log(ngx.ERR, "Redis command failed: ", command, " - ", err)
+        end
+        return result
+    end
+    
+    -- 记录路由总请求数
+    safe_redis_command("incr", route_key .. ":total_requests")
+    
+    -- 记录路由状态码
+    if status then
+        local status_key = tostring(status)
+        safe_redis_command("incr", route_key .. ":status:" .. status_key)
+    end
+    
+    -- 记录路由最后使用时间
+    safe_redis_command("set", route_key .. ":last_used", ngx.time())
+    
+    -- 设置过期时间
+    safe_redis_command("expire", route_key .. ":total_requests", 86400) -- 24小时过期
+    safe_redis_command("expire", route_key .. ":last_used", 86400)
+end
+
 -- 增加并发请求计数
 function _M.incr_concurrent_requests(namespace_id)
     if not namespace_id then
@@ -314,6 +401,105 @@ function _M.get_all_namespace_metrics()
     return result
 end
 
+-- 获取命名空间Token使用统计
+function _M.get_namespace_token_usage(namespace_id)
+    if not namespace_id then
+        return {}
+    end
+    
+    local namespace_code = get_namespace_code(namespace_id)
+    local namespace_key = NAMESPACE_PREFIX .. namespace_code
+    
+    local redis_client = redis.get_connection()
+    if not redis_client then
+        return {}
+    end
+    
+    local result = {
+        total_tokens = 0,
+        models = {},
+        routes = {}
+    }
+    
+    -- 获取总Token使用量
+    result.total_tokens = tonumber(redis_client:get(namespace_key .. ":total_tokens")) or 0
+    
+    -- 获取模型Token使用量
+    local model_keys = redis_client:keys(namespace_key .. ":model:*:tokens")
+    for _, key in ipairs(model_keys) do
+        local model_name = key:match(":model:(.+):tokens")
+        if model_name then
+            local tokens = tonumber(redis_client:get(key)) or 0
+            local requests = tonumber(redis_client:get(namespace_key .. ":model:" .. model_name .. ":requests")) or 0
+            result.models[model_name] = {
+                tokens = tokens,
+                requests = requests
+            }
+        end
+    end
+    
+    -- 获取路由Token使用量
+    local route_keys = redis_client:keys(namespace_key .. ":route:*:tokens")
+    for _, key in ipairs(route_keys) do
+        local route_path = key:match(":route:(.+):tokens")
+        if route_path then
+            local tokens = tonumber(redis_client:get(key)) or 0
+            local requests = tonumber(redis_client:get(namespace_key .. ":route:" .. route_path .. ":requests")) or 0
+            result.routes[route_path] = {
+                tokens = tokens,
+                requests = requests
+            }
+        end
+    end
+    
+    return result
+end
+
+-- 获取命名空间路由使用统计
+function _M.get_namespace_route_usage(namespace_id)
+    if not namespace_id then
+        return {}
+    end
+    
+    local namespace_code = get_namespace_code(namespace_id)
+    local namespace_key = NAMESPACE_PREFIX .. namespace_code
+    
+    local redis_client = redis.get_connection()
+    if not redis_client then
+        return {}
+    end
+    
+    local result = {}
+    
+    -- 获取路由使用统计
+    local route_keys = redis_client:keys(namespace_key .. ":route:*:total_requests")
+    for _, key in ipairs(route_keys) do
+        local route_path = key:match(":route:(.+):total_requests")
+        if route_path then
+            local total_requests = tonumber(redis_client:get(key)) or 0
+            local last_used = tonumber(redis_client:get(namespace_key .. ":route:" .. route_path .. ":last_used")) or 0
+            
+            result[route_path] = {
+                total_requests = total_requests,
+                last_used = last_used,
+                status_codes = {}
+            }
+            
+            -- 获取状态码统计
+            local status_keys = redis_client:keys(namespace_key .. ":route:" .. route_path .. ":status:*")
+            for _, status_key in ipairs(status_keys) do
+                local status_code = status_key:match(":status:(.+)")
+                if status_code then
+                    local count = tonumber(redis_client:get(status_key)) or 0
+                    result[route_path].status_codes[status_code] = count
+                end
+            end
+        end
+    end
+    
+    return result
+end
+
 -- 获取实例健康状态
 function _M.get_instance_health()
     local result = {}
@@ -361,6 +547,15 @@ function _M.get_prometheus_metrics()
     table.insert(lines, "# TYPE ai_gateway_uptime_seconds gauge")
     table.insert(lines, "ai_gateway_uptime_seconds " .. (global_metrics.uptime or 0))
     
+    -- 全局Token使用量
+    local redis_client = redis.get_connection()
+    if redis_client then
+        local global_tokens = tonumber(redis_client:get(GLOBAL_KEY .. ":total_tokens")) or 0
+        table.insert(lines, "# HELP ai_gateway_total_tokens Total token usage")
+        table.insert(lines, "# TYPE ai_gateway_total_tokens counter")
+        table.insert(lines, "ai_gateway_total_tokens " .. global_tokens)
+    end
+    
     -- 命名空间指标
     local namespace_metrics = _M.get_all_namespace_metrics()
     for namespace_id, metrics in pairs(namespace_metrics) do
@@ -388,6 +583,43 @@ function _M.get_prometheus_metrics()
             table.insert(lines, "# TYPE ai_gateway_namespace_status_codes_total counter")
             table.insert(lines, string.format("ai_gateway_namespace_status_codes_total{namespace_code=\"%s\",status_code=\"%s\"} %d",
                 namespace_code, status_code, count or 0))
+        end
+        
+        -- Token使用量指标
+        local token_usage = _M.get_namespace_token_usage(namespace_id)
+        table.insert(lines, "# HELP ai_gateway_namespace_tokens_total Total token usage per namespace")
+        table.insert(lines, "# TYPE ai_gateway_namespace_tokens_total counter")
+        table.insert(lines, string.format("ai_gateway_namespace_tokens_total{namespace_code=\"%s\"} %d", 
+            namespace_code, token_usage.total_tokens or 0))
+        
+        -- 模型Token使用量
+        for model_name, model_data in pairs(token_usage.models or {}) do
+            table.insert(lines, "# HELP ai_gateway_model_tokens_total Total token usage per model per namespace")
+            table.insert(lines, "# TYPE ai_gateway_model_tokens_total counter")
+            table.insert(lines, string.format("ai_gateway_model_tokens_total{namespace_code=\"%s\",model_name=\"%s\"} %d", 
+                namespace_code, model_name, model_data.tokens or 0))
+            
+            table.insert(lines, "# HELP ai_gateway_model_requests_total Total requests per model per namespace")
+            table.insert(lines, "# TYPE ai_gateway_model_requests_total counter")
+            table.insert(lines, string.format("ai_gateway_model_requests_total{namespace_code=\"%s\",model_name=\"%s\"} %d", 
+                namespace_code, model_name, model_data.requests or 0))
+        end
+        
+        -- 路由使用统计
+        local route_usage = _M.get_namespace_route_usage(namespace_id)
+        for route_path, route_data in pairs(route_usage) do
+            table.insert(lines, "# HELP ai_gateway_route_requests_total Total requests per route per namespace")
+            table.insert(lines, "# TYPE ai_gateway_route_requests_total counter")
+            table.insert(lines, string.format("ai_gateway_route_requests_total{namespace_code=\"%s\",route_path=\"%s\"} %d", 
+                namespace_code, route_path, route_data.total_requests or 0))
+            
+            -- 路由状态码统计
+            for status_code, count in pairs(route_data.status_codes or {}) do
+                table.insert(lines, "# HELP ai_gateway_route_status_codes_total Total requests by status code per route per namespace")
+                table.insert(lines, "# TYPE ai_gateway_route_status_codes_total counter")
+                table.insert(lines, string.format("ai_gateway_route_status_codes_total{namespace_code=\"%s\",route_path=\"%s\",status_code=\"%s\"} %d",
+                    namespace_code, route_path, status_code, count or 0))
+            end
         end
     end
     

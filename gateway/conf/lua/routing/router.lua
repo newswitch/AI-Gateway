@@ -138,6 +138,7 @@ function _M.handle_request()
     if not success then
         ngx.log(ngx.ERR, "ROUTER: Proxy to upstream failed: ", err)
         metrics.record_request(namespace_id, request_info, 502, ngx.now() - start_time)
+        metrics.record_route_usage(namespace_id, request_info, 502)
         logger.log_request_end(request_id, 502, err)
         
         ngx.status = 502
@@ -148,6 +149,17 @@ function _M.handle_request()
         -- 成功代理，记录指标
         local response_time = ngx.now() - start_time
         metrics.record_request(namespace_id, request_info, 200, response_time)
+        metrics.record_route_usage(namespace_id, request_info, 200)
+        
+        -- 记录Token使用量（如果有模型信息）
+        local model_name = request_info.headers["X-Model"] or request_info.args.model or "unknown"
+        if request_info.body and model_name ~= "unknown" then
+            local token_calculator = require "utils.token_calculator"
+            local token_count = token_calculator.estimate_tokens(request_info.body, model_name)
+            if token_count > 0 then
+                metrics.record_token_usage(namespace_id, model_name, token_count, request_info)
+            end
+        end
     end
 end
 
