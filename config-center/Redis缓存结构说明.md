@@ -42,7 +42,14 @@ dashboard:realtime           # 仪表盘实时数据
 stats:{stats_type}           # 统计数据
 ```
 
-### 3. 认证缓存
+### 3. 监控指标缓存
+```
+metrics:global:{metric}      # 全局监控指标
+metrics:ns:{namespace_code}:{metric}  # 命名空间监控指标（使用namespace_code，更直观）
+metrics:instance:{instance_id}:{namespace_code}  # 实例健康状态
+```
+
+### 4. 认证缓存
 ```
 auth:token:{token}           # 认证令牌
 auth:permissions:{user_id}   # 用户权限
@@ -238,7 +245,33 @@ auth:permissions:admin = [
 ]
 ```
 
-### 8. 统计数据缓存
+### 8. 监控指标缓存
+```redis
+# 全局指标
+metrics:global:total_requests = 150000
+metrics:global:total_errors = 2250
+metrics:global:total_response_time = 37500000
+metrics:global:last_request_time = 1705312345
+
+# 命名空间指标（使用namespace_code，更直观）
+metrics:ns:wechat:total_requests = 50000
+metrics:ns:wechat:successful_requests = 49500
+metrics:ns:wechat:failed_requests = 500
+metrics:ns:wechat:total_response_time = 12500000
+metrics:ns:wechat:last_request_time = 1705312345
+metrics:ns:wechat:status:200 = 45000
+metrics:ns:wechat:status:400 = 3000
+metrics:ns:wechat:status:500 = 200
+
+# 实例健康状态
+metrics:instance:gateway-01:wechat = {
+    "status": "healthy",
+    "last_request_time": 1705312345,
+    "concurrent_requests": 5
+}
+```
+
+### 9. 统计数据缓存
 ```redis
 # 策略统计
 stats:policies = {

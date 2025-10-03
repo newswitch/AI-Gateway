@@ -20,6 +20,54 @@ local function get_instance_id()
     return instance_id
 end
 
+-- 获取namespace_code
+local function get_namespace_code(namespace_id)
+    if not namespace_id then
+        return nil
+    end
+    
+    local cache = require "config.cache"
+    local configs = cache.get_all_configs()
+    local namespaces = configs.namespaces or {}
+    
+    -- 转换namespace_id为数字类型进行比较
+    local target_id = tonumber(namespace_id)
+    
+    for _, namespace in ipairs(namespaces) do
+        if namespace.namespace_id == target_id then
+            return namespace.namespace_code
+        end
+    end
+    
+    -- 如果没找到namespace_code，使用namespace_id作为备选
+    return tostring(namespace_id)
+end
+
+-- 从namespace_code获取namespace_id
+local function get_namespace_id_by_code(namespace_code)
+    if not namespace_code then
+        return nil
+    end
+    
+    local cache = require "config.cache"
+    local configs = cache.get_all_configs()
+    local namespaces = configs.namespaces or {}
+    
+    for _, namespace in ipairs(namespaces) do
+        if namespace.namespace_code == tostring(namespace_code) then
+            return namespace.namespace_id
+        end
+    end
+    
+    -- 如果没找到，尝试将namespace_code转换为数字（兼容旧数据）
+    local id = tonumber(namespace_code)
+    if id then
+        return id
+    end
+    
+    return nil
+end
+
 -- 记录请求指标
 function _M.record_request(namespace_id, request_info, status, response_time)
     if not namespace_id then
@@ -28,8 +76,9 @@ function _M.record_request(namespace_id, request_info, status, response_time)
     
     local instance_id = get_instance_id()
     local current_time = ngx.time()
-    local namespace_key = NAMESPACE_PREFIX .. namespace_id
-    local instance_key = INSTANCE_PREFIX .. instance_id .. ":" .. namespace_id
+    local namespace_code = get_namespace_code(namespace_id)
+    local namespace_key = NAMESPACE_PREFIX .. namespace_code
+    local instance_key = INSTANCE_PREFIX .. instance_id .. ":" .. namespace_code
     
     -- 使用 Redis 原子操作更新指标
     local redis_client = redis.get_connection()
@@ -86,8 +135,9 @@ function _M.incr_concurrent_requests(namespace_id)
     end
     
     local instance_id = get_instance_id()
-    local namespace_key = NAMESPACE_PREFIX .. namespace_id
-    local instance_key = INSTANCE_PREFIX .. instance_id .. ":" .. namespace_id
+    local namespace_code = get_namespace_code(namespace_id)
+    local namespace_key = NAMESPACE_PREFIX .. namespace_code
+    local instance_key = INSTANCE_PREFIX .. instance_id .. ":" .. namespace_code
     
     local redis_client = redis.get_connection()
     if not redis_client then
@@ -110,8 +160,9 @@ function _M.decr_concurrent_requests(namespace_id)
     end
     
     local instance_id = get_instance_id()
-    local namespace_key = NAMESPACE_PREFIX .. namespace_id
-    local instance_key = INSTANCE_PREFIX .. instance_id .. ":" .. namespace_id
+    local namespace_code = get_namespace_code(namespace_id)
+    local namespace_key = NAMESPACE_PREFIX .. namespace_code
+    local instance_key = INSTANCE_PREFIX .. instance_id .. ":" .. namespace_code
     
     local redis_client = redis.get_connection()
     if not redis_client then
@@ -156,7 +207,8 @@ function _M.get_namespace_metrics(namespace_id)
         }
     end
     
-    local namespace_key = NAMESPACE_PREFIX .. namespace_id
+    local namespace_code = get_namespace_code(namespace_id)
+    local namespace_key = NAMESPACE_PREFIX .. namespace_code
     
     -- 获取基础指标
     local total_requests = tonumber(redis_client:get(namespace_key .. ":total_requests")) or 0
@@ -249,9 +301,13 @@ function _M.get_all_namespace_metrics()
     -- 获取所有命名空间键
     local namespace_keys = redis_client:keys(NAMESPACE_PREFIX .. "*:total_requests")
     for _, key in ipairs(namespace_keys) do
-        local namespace_id = key:match(NAMESPACE_PREFIX .. "(.+):total_requests")
-        if namespace_id then
-            result[namespace_id] = _M.get_namespace_metrics(namespace_id)
+        local namespace_code = key:match(NAMESPACE_PREFIX .. "(.+):total_requests")
+        if namespace_code then
+            -- 从namespace_code反推namespace_id
+            local namespace_id = get_namespace_id_by_code(namespace_code)
+            if namespace_id then
+                result[namespace_id] = _M.get_namespace_metrics(namespace_id)
+            end
         end
     end
     
@@ -308,27 +364,30 @@ function _M.get_prometheus_metrics()
     -- 命名空间指标
     local namespace_metrics = _M.get_all_namespace_metrics()
     for namespace_id, metrics in pairs(namespace_metrics) do
+        -- 获取namespace_code用于标签
+        local namespace_code = get_namespace_code(namespace_id)
+        
         table.insert(lines, "# HELP ai_gateway_namespace_requests_total Total number of requests per namespace")
         table.insert(lines, "# TYPE ai_gateway_namespace_requests_total counter")
-        table.insert(lines, string.format("ai_gateway_namespace_requests_total{namespace_id=\"%s\"} %d", 
-            namespace_id, metrics.total_requests or 0))
+        table.insert(lines, string.format("ai_gateway_namespace_requests_total{namespace_code=\"%s\"} %d", 
+            namespace_code, metrics.total_requests or 0))
         
         table.insert(lines, "# HELP ai_gateway_namespace_concurrent_requests Current number of concurrent requests per namespace")
         table.insert(lines, "# TYPE ai_gateway_namespace_concurrent_requests gauge")
-        table.insert(lines, string.format("ai_gateway_namespace_concurrent_requests{namespace_id=\"%s\"} %d", 
-            namespace_id, metrics.concurrent_requests or 0))
+        table.insert(lines, string.format("ai_gateway_namespace_concurrent_requests{namespace_code=\"%s\"} %d", 
+            namespace_code, metrics.concurrent_requests or 0))
         
         table.insert(lines, "# HELP ai_gateway_namespace_response_time_seconds Average response time per namespace")
         table.insert(lines, "# TYPE ai_gateway_namespace_response_time_seconds gauge")
-        table.insert(lines, string.format("ai_gateway_namespace_response_time_seconds{namespace_id=\"%s\"} %.4f", 
-            namespace_id, metrics.average_response_time or 0))
+        table.insert(lines, string.format("ai_gateway_namespace_response_time_seconds{namespace_code=\"%s\"} %.4f", 
+            namespace_code, metrics.average_response_time or 0))
         
         -- 状态码指标
         for status_code, count in pairs(metrics.status_codes or {}) do
             table.insert(lines, "# HELP ai_gateway_namespace_status_codes_total Total number of requests by status code per namespace")
             table.insert(lines, "# TYPE ai_gateway_namespace_status_codes_total counter")
-            table.insert(lines, string.format("ai_gateway_namespace_status_codes_total{namespace_id=\"%s\",status_code=\"%s\"} %d",
-                namespace_id, status_code, count or 0))
+            table.insert(lines, string.format("ai_gateway_namespace_status_codes_total{namespace_code=\"%s\",status_code=\"%s\"} %d",
+                namespace_code, status_code, count or 0))
         end
     end
     

@@ -283,32 +283,63 @@ end
 local function enforce_qps_limit(policy, request_info)
     local config = policy.rule_config or policy.config or {}
     local max_qps = config.maxQPS or 0
-    local time_window = config.timeWindow or 60
+    local time_window = config.timeWindow or 1 -- 默认1秒
     
     if max_qps <= 0 then
-        return true, "QPS limit not configured"
+        return true, "QPS limit not configured or invalid"
     end
     
-    local namespace_id = tostring(policy.namespace_id or "")
+    -- 优先使用namespace_code，如果没有则使用namespace_id
+    local namespace_code = ""
+    if policy.namespaces and type(policy.namespaces) == "table" and #policy.namespaces > 0 then
+        namespace_code = policy.namespaces[1].code or ""
+    end
+    
+    if namespace_code == "" then
+        -- 如果没有namespace_code，尝试从策略的namespace_id获取
+        local cache = require "config.cache"
+        local configs = cache.get_all_configs()
+        local namespaces = configs.namespaces or {}
+        for _, namespace in ipairs(namespaces) do
+            if namespace.namespace_id == policy.namespace_id then
+                namespace_code = namespace.namespace_code or ""
+                break
+            end
+        end
+    end
+    
+    -- 如果还是没有找到namespace_code，使用namespace_id作为备选
+    if namespace_code == "" then
+        namespace_code = tostring(policy.namespace_id or "")
+    end
+    
     local current_time = ngx.time()
-    local window_key = "qps:" .. namespace_id .. ":" .. math.floor(current_time / time_window)
     
-    local current_count, err = redis.get(window_key)
-    if not current_count then
-        current_count = 0
+    -- 根据时间窗口计算窗口键
+    local window_start
+    if time_window == 1 then
+        -- 1秒窗口：使用当前秒
+        window_start = math.floor(current_time)
     else
-        current_count = tonumber(current_count) or 0
+        -- 多秒窗口：计算窗口开始时间
+        window_start = math.floor(current_time / time_window) * time_window
     end
     
-    if current_count >= max_qps then
-        ngx.log(ngx.WARN, "QPS limit exceeded: ", current_count, " >= ", max_qps)
+    local window_key = "qps:" .. namespace_code .. ":" .. window_start
+    
+    local current_count, err = redis.incr_ex(window_key, time_window + 1) -- 设置过期时间为时间窗口+1秒
+    if err then
+        ngx.log(ngx.ERR, "POLICY_ENFORCER: Redis INCR_EX for QPS failed: ", err)
+        return false, "Internal server error (Redis QPS INCR_EX failed)"
+    end
+    
+    if current_count > max_qps then
+        ngx.log(ngx.WARN, "QPS limit exceeded for key: ", window_key, ", current: ", current_count, " > max: ", max_qps, " (window: ", time_window, "s)")
         return false, "QPS limit exceeded"
     end
     
-    -- 增加计数
-    redis.incr_ex(window_key, time_window)
-    
-    return true, "QPS limit check passed"
+    ngx.log(ngx.INFO, "POLICY_ENFORCER: QPS check passed for key: ", window_key, ", current: ", current_count, " / max: ", max_qps, " (window: ", time_window, "s)")
+    return true
 end
 
 -- 执行并发限制策略
@@ -336,16 +367,29 @@ local function enforce_concurrency_limit(policy, request_info)
         current_count = tonumber(current_count) or 0
     end
     
+    -- 防止负数：如果当前计数为负数，重置为0
+    if current_count < 0 then
+        ngx.log(ngx.WARN, "Concurrency count is negative, resetting to 0: ", current_count)
+        redis.set(concurrency_key, 0)
+        current_count = 0
+    end
+    
     if current_count >= max_concurrent then
         ngx.log(ngx.WARN, "Concurrency limit exceeded: ", current_count, " >= ", max_concurrent)
         return false, "Concurrency limit exceeded"
     end
     
     -- 增加并发计数
-    redis.incr(concurrency_key)
+    local new_count, incr_err = redis.incr(concurrency_key)
+    if not new_count then
+        ngx.log(ngx.ERR, "Failed to increment concurrency count: ", incr_err)
+        return true, "Failed to increment concurrency count, allowing request"
+    end
     
     -- 设置过期时间（防止计数永远不减少）
     redis.expire(concurrency_key, 300) -- 5分钟
+    
+    ngx.log(ngx.INFO, "Concurrency count increased: ", new_count, " (max: ", max_concurrent, ")")
     
     return true, "Concurrency limit check passed"
 end
@@ -528,10 +572,10 @@ function _M.enforce_namespace_policies(namespace_id, request_info)
         ngx.log(ngx.INFO, "POLICY_ENFORCER: Checking policy: ", policy.policy_name, ", namespace_id: ", policy.namespace_id, " (type: ", type(policy.namespace_id), ")")
         
         -- 类型转换比较
-        local policy_namespace_id = tostring(policy.namespace_id)
+        local policy_namespace_id = policy.namespace_id and tostring(policy.namespace_id) or nil
         local request_namespace_id = tostring(namespace_id)
         
-        if policy_namespace_id == request_namespace_id or 
+        if (policy_namespace_id and policy_namespace_id == request_namespace_id) or 
            (policy.namespaces and type(policy.namespaces) == "table") then
             -- 检查策略是否关联到该命名空间
             local is_associated = false
@@ -604,13 +648,20 @@ function _M.decrease_concurrency_count(namespace_code)
     end
     ngx.log(ngx.INFO, "POLICY_ENFORCER: 当前并发计数: ", current_count or "nil")
     
-    -- 原子递减并发数
+    -- 原子递减并发数，但防止出现负数
     ngx.log(ngx.INFO, "POLICY_ENFORCER: 执行DECR操作...")
     local count, err = red:decr(concurrency_key)
     if not count then
         ngx.log(ngx.ERR, "POLICY_ENFORCER: Redis DECR失败: ", err)
         redis.close_connection(red)
         return false, "Redis DECR failed: " .. (err or "unknown error")
+    end
+    
+    -- 如果递减后变成负数，重置为0
+    if count < 0 then
+        ngx.log(ngx.WARN, "POLICY_ENFORCER: 并发计数变为负数，重置为0: ", count)
+        red:set(concurrency_key, 0)
+        count = 0
     end
     
     ngx.log(ngx.INFO, "POLICY_ENFORCER: DECR操作成功 - key: ", concurrency_key, ", 新值: ", count)

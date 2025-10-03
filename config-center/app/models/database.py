@@ -1821,14 +1821,23 @@ class DatabaseManager:
             logger.error(f"获取策略失败: {str(e)}")
             return None
     
-    async def get_all_policies(self, policy_type: str = None) -> List[Dict[str, Any]]:
-        """获取所有策略（只返回启用状态的策略）"""
+    async def get_all_policies(self, policy_type: str = None, status_filter: str = None) -> List[Dict[str, Any]]:
+        """获取所有策略，支持状态过滤"""
         try:
             async with self.get_session() as session:
-                # 查询 status = 1 或 status IS NULL 的记录（NULL 视为启用状态）
-                stmt = select(self.policies).where(
-                    (self.policies.c.status == 1) | (self.policies.c.status.is_(None))
-                )
+                # 构建基础查询
+                stmt = select(self.policies)
+                
+                # 应用状态过滤
+                if status_filter == "enabled":
+                    # 只返回启用状态的策略
+                    stmt = stmt.where(
+                        (self.policies.c.status == 1) | (self.policies.c.status.is_(None))
+                    )
+                elif status_filter == "disabled":
+                    # 只返回禁用状态的策略
+                    stmt = stmt.where(self.policies.c.status == 0)
+                # 如果 status_filter 为 None 或 "all"，则返回所有策略
                 
                 if policy_type:
                     stmt = stmt.where(self.policies.c.policy_type == policy_type)

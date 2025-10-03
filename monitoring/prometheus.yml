@@ -36,6 +36,15 @@ scrape_configs:
     scrape_timeout: 10s
     honor_labels: true
 
+  # 收集Redis指标（通过配置中心导出）
+  - job_name: 'ai-gateway-redis-metrics'
+    static_configs:
+      - targets: ['config-center:8000']
+    metrics_path: '/redis-metrics'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    honor_labels: true
+
   # 收集Token服务指标
   - job_name: 'ai-gateway-token-service'
     static_configs:

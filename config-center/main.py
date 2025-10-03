@@ -148,6 +148,13 @@ async def metrics():
     metrics_collector = get_metrics_collector()
     return Response(metrics_collector.get_metrics(), media_type="text/plain")
 
+# Redis指标导出端点
+@app.get("/redis-metrics")
+async def redis_metrics():
+    """从Redis导出监控指标"""
+    from app.services.redis_metrics_exporter import redis_exporter
+    return Response(redis_exporter.get_metrics(), media_type="text/plain")
+
 # 健康检查
 @app.get("/health")
 @app.head("/health")

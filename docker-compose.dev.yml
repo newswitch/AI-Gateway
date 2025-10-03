@@ -78,7 +78,7 @@ services:
     networks:
       - ai-gateway-dev-network
     healthcheck:
-      test: [ "CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8003/health" ]
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')" ]
       timeout: 20s
       retries: 10
 
@@ -226,12 +226,39 @@ services:
       retries: 3
       start_period: 30s
 
+  # Grafana - 监控可视化平台
+  grafana:
+    image: grafana/grafana:latest
+    container_name: ai-gateway-grafana-dev
+    restart: unless-stopped
+    ports:
+      - "8081:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel,grafana-worldmap-panel
+    volumes:
+      - grafana_data_dev:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    networks:
+      - ai-gateway-dev-network
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health" ]
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
 volumes:
   mysql_data_dev:
   redis_data_dev:
   token_models_dev:
   token_cache_dev:
   prometheus_data_dev:
+  grafana_data_dev:
 
 
 networks:

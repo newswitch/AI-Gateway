@@ -52,8 +52,8 @@ async def get_policies(
     try:
         db = get_db()
         
-        # 获取所有策略
-        all_policies = await db.get_all_policies()
+        # 获取所有策略，支持状态过滤
+        all_policies = await db.get_all_policies(status_filter=status)
         
         # 应用搜索和筛选条件
         filtered_policies = []
@@ -69,11 +69,7 @@ async def get_policies(
             if policy_type and policy.get('policy_type') != policy_type:
                 continue
             
-            # 状态筛选
-            if status:
-                policy_status = "enabled" if policy.get('status') == 1 else "disabled"
-                if policy_status != status:
-                    continue
+            # 状态筛选已经在数据库层面处理，这里不需要重复过滤
             
             # 获取命名空间信息 - 优先使用存储的 namespaces 字段
             namespace_info = None
