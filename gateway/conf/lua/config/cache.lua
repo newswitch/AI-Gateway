@@ -175,6 +175,11 @@ function _M.get_locations()
     return locations
 end
 
+-- 获取路由规则缓存（别名，用于路径重写模块）
+function _M.get_location_rules()
+    return _M.get_locations()
+end
+
 -- 设置匹配器缓存
 function _M.set_matchers(matchers)
     if not matchers then

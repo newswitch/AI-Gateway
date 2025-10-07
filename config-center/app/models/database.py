@@ -126,6 +126,7 @@ class DatabaseManager:
             Column('match_value', Text, comment='匹配值'),
             Column('add_headers', Text, comment='添加的请求头(JSON)'),
             Column('rewrite_path', String(200), comment='路径重写'),
+            Column('path_rewrite_config', Text, comment='路径重写配置(JSON)'),
             Column('priority', Integer, default=100, comment='优先级'),
             Column('status', Integer, default=1, comment='状态：1-启用，0-禁用'),
             Column('created_by', Integer, comment='创建者ID'),

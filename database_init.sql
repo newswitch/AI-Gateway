@@ -116,6 +116,7 @@ CREATE TABLE location_rules (
     match_value TEXT,
     add_headers JSON,
     rewrite_path VARCHAR(200),
+    path_rewrite_config JSON,
     -- 通用字段
     priority INT DEFAULT 100,
     status INT DEFAULT 1,

@@ -1,6 +1,8 @@
 -- 代理处理器模块
 -- 负责将请求代理到选定的上游服务器
 
+local path_rewriter = require "routing.path_rewriter"
+
 local _M = {}
 
 -- 构建目标URL
@@ -59,14 +61,21 @@ function _M.proxy_to_upstream(upstream, request_info)
         return false, "Invalid upstream or request info"
     end
     
-    -- 构建目标URL
-    local target_url = build_target_url(upstream, request_info)
+    -- 应用路径重写
+    local rewritten_request_info = path_rewriter.apply_path_rewrite(request_info)
+    if rewritten_request_info.rewrite_rule_id then
+        ngx.log(ngx.INFO, "PROXY_HANDLER: Path rewritten from ", 
+            rewritten_request_info.original_path, " to ", rewritten_request_info.path)
+    end
+    
+    -- 构建目标URL（使用重写后的路径）
+    local target_url = build_target_url(upstream, rewritten_request_info)
     
     -- 设置代理变量
     ngx.var.upstream_backend = target_url
     
     -- 设置代理头
-    set_proxy_headers(upstream, request_info)
+    set_proxy_headers(upstream, rewritten_request_info)
     
     ngx.log(ngx.INFO, "Proxying request to: ", target_url)
     

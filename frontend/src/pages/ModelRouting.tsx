@@ -11,12 +11,40 @@ import {
 } from '@ant-design/icons';
 import { upstreamApi, locationApi } from '../services/api';
 
+// 路径重写配置接口
+interface PathRewriteConfig {
+  enabled: boolean;
+  from: string;
+  to: string;
+}
+
+// 路由规则接口
+interface LocationRule {
+  id?: string;
+  path: string;
+  upstream: string;
+  proxy_cache?: boolean;
+  proxy_buffering?: boolean;
+  proxy_pass: string;
+  is_regex?: boolean;
+  path_rewrite?: PathRewriteConfig;
+  limit_req?: {
+    enabled: boolean;
+    zone: string;
+    burst: number;
+    nodelay: boolean;
+  };
+  sse_support?: boolean;
+  chunked_transfer?: boolean;
+}
+
 const { Title, Text } = Typography;
 const { Option } = Select;
 // TabPane已弃用，使用items属性
 const { TextArea } = Input;
 
 interface UpstreamServer {
+  id?: string;
   name: string;
   servers: Array<{
     address: string;
@@ -31,22 +59,6 @@ interface UpstreamServer {
   };
 }
 
-interface LocationRule {
-  path: string;
-  upstream: string;
-  proxy_cache?: boolean;
-  proxy_buffering?: boolean;
-  proxy_pass: string;
-  is_regex?: boolean;
-  limit_req?: {
-    enabled: boolean;
-    zone: string;
-    burst: number;
-    nodelay: boolean;
-  };
-  sse_support?: boolean;
-  chunked_transfer?: boolean;
-}
 
 
 const ModelRouting: React.FC = () => {
@@ -57,7 +69,8 @@ const ModelRouting: React.FC = () => {
   const [isLocationModalVisible, setIsLocationModalVisible] = useState(false);
   const [editingUpstream, setEditingUpstream] = useState<UpstreamServer | null>(null);
   const [editingLocation, setEditingLocation] = useState<LocationRule | null>(null);
-  const [form] = Form.useForm();
+  const [upstreamForm] = Form.useForm();
+  const [locationForm] = Form.useForm();
   // const [loading, setLoading] = useState(false);
 
   // 数据加载函数
@@ -142,6 +155,10 @@ const ModelRouting: React.FC = () => {
       if (location.proxy_buffering === false) {
         config += `            proxy_buffering off;\n`;
       }
+      // 添加路径重写规则
+      if (location.path_rewrite?.enabled && location.path_rewrite.from && location.path_rewrite.to) {
+        config += `            rewrite ^${location.path_rewrite.from}(.*)$ ${location.path_rewrite.to}$1 last;\n`;
+      }
       config += `            proxy_pass ${location.proxy_pass};\n`;
       config += `        }\n\n`;
     });
@@ -164,9 +181,13 @@ const ModelRouting: React.FC = () => {
     setIsUpstreamModalVisible(true);
   };
 
-  const handleDeleteUpstream = async (upstreamName: string) => {
+  const handleDeleteUpstream = async (upstream: UpstreamServer) => {
     try {
-      const response = await upstreamApi.deleteUpstream(upstreamName);
+      if (!upstream.id) {
+        message.error('无法删除：缺少ID信息');
+        return;
+      }
+      const response = await upstreamApi.deleteUpstream(upstream.id);
       if (response.code === 200) {
         message.success('Upstream删除成功');
         loadUpstreams(); // 重新加载数据
@@ -182,7 +203,7 @@ const ModelRouting: React.FC = () => {
 
   const handleSaveUpstream = async () => {
     try {
-      const values = await form.validateFields();
+      const values = await upstreamForm.validateFields();
       
       const upstreamData = {
         name: values.name,
@@ -200,9 +221,9 @@ const ModelRouting: React.FC = () => {
       };
 
       let response;
-      if (editingUpstream) {
+      if (editingUpstream && editingUpstream.id) {
         // 更新现有upstream
-        response = await upstreamApi.updateUpstream(editingUpstream.name, upstreamData);
+        response = await upstreamApi.updateUpstream(editingUpstream.id, upstreamData);
       } else {
         // 创建新upstream
         response = await upstreamApi.createUpstream(upstreamData);
@@ -212,7 +233,7 @@ const ModelRouting: React.FC = () => {
         message.success(`Upstream${editingUpstream ? '更新' : '创建'}成功`);
         setIsUpstreamModalVisible(false);
         setEditingUpstream(null);
-        form.resetFields();
+        upstreamForm.resetFields();
         loadUpstreams(); // 重新加载数据
       } else {
         message.error(response.message || '操作失败');
@@ -230,7 +251,12 @@ const ModelRouting: React.FC = () => {
       upstream: '',
       proxy_cache: false,
       proxy_buffering: false,
-      proxy_pass: ''
+      proxy_pass: '',
+      path_rewrite: {
+        enabled: false,
+        from: '',
+        to: ''
+      }
     });
     setIsLocationModalVisible(true);
   };
@@ -240,9 +266,13 @@ const ModelRouting: React.FC = () => {
     setIsLocationModalVisible(true);
   };
 
-  const handleDeleteLocation = async (path: string) => {
+  const handleDeleteLocation = async (location: LocationRule) => {
     try {
-      const response = await locationApi.deleteLocation(path);
+      if (!location.id) {
+        message.error('无法删除：缺少ID信息');
+        return;
+      }
+      const response = await locationApi.deleteLocation(location.id);
       if (response.code === 200) {
         message.success('Location规则删除成功');
         loadLocations(); // 重新加载数据
@@ -257,14 +287,19 @@ const ModelRouting: React.FC = () => {
 
   const handleSaveLocation = async () => {
     try {
-      const values = await form.validateFields();
+      const values = await locationForm.validateFields();
       
       const locationData = {
         path: values.path,
         upstream: values.upstream,
         proxy_cache: values.proxy_cache,
         proxy_buffering: values.proxy_buffering,
-        proxy_pass: `http://${values.upstream}${values.path}`
+        proxy_pass: `http://${values.upstream}${values.path}`,
+        path_rewrite: values.path_rewrite || {
+          enabled: false,
+          from: '',
+          to: ''
+        }
       };
 
       let response;
@@ -280,7 +315,7 @@ const ModelRouting: React.FC = () => {
         message.success(`Location规则${editingLocation && editingLocation.path ? '更新' : '创建'}成功`);
         setIsLocationModalVisible(false);
         setEditingLocation(null);
-        form.resetFields();
+        locationForm.resetFields();
         loadLocations(); // 重新加载数据
       } else {
         message.error(response.message || '操作失败');
@@ -354,7 +389,7 @@ const ModelRouting: React.FC = () => {
           <Button type="link" icon={<EditOutlined />} size="small" onClick={() => handleEditUpstream(record)}>
             编辑
           </Button>
-          <Button type="link" icon={<DeleteOutlined />} size="small" danger onClick={() => handleDeleteUpstream(record.name)}>
+          <Button type="link" icon={<DeleteOutlined />} size="small" danger onClick={() => handleDeleteUpstream(record)}>
             删除
           </Button>
         </Space>
@@ -396,6 +431,24 @@ const ModelRouting: React.FC = () => {
       )
     },
     {
+      title: '路径重写',
+      key: 'path_rewrite',
+      render: (_: any, record: LocationRule) => (
+        <div>
+          {record.path_rewrite?.enabled ? (
+            <Space size="small">
+              <Tag color="blue">启用</Tag>
+              <Text code style={{ fontSize: '12px' }}>
+                {record.path_rewrite.from} → {record.path_rewrite.to}
+              </Text>
+            </Space>
+          ) : (
+            <Tag color="default">禁用</Tag>
+          )}
+        </div>
+      )
+    },
+    {
       title: '操作',
       key: 'actions',
       render: (_: any, record: LocationRule) => (
@@ -403,7 +456,7 @@ const ModelRouting: React.FC = () => {
           <Button type="link" icon={<EditOutlined />} size="small" onClick={() => handleEditLocation(record)}>
             编辑
           </Button>
-          <Button type="link" icon={<DeleteOutlined />} size="small" danger onClick={() => handleDeleteLocation(record.path)}>
+          <Button type="link" icon={<DeleteOutlined />} size="small" danger onClick={() => handleDeleteLocation(record)}>
             删除
           </Button>
         </Space>
@@ -519,7 +572,7 @@ const ModelRouting: React.FC = () => {
                   <Table
                     columns={upstreamColumns}
                     dataSource={upstreams}
-                    rowKey="name"
+                    rowKey="id"
                     pagination={{ pageSize: 10 }}
                   />
                 </>
@@ -539,7 +592,7 @@ const ModelRouting: React.FC = () => {
                   <Table
                     columns={locationColumns}
                     dataSource={locations}
-                    rowKey="path"
+                    rowKey="id"
                     pagination={{ pageSize: 10 }}
                   />
                 </>
@@ -589,11 +642,11 @@ const ModelRouting: React.FC = () => {
         onCancel={() => {
           setIsUpstreamModalVisible(false);
           setEditingUpstream(null);
-          form.resetFields();
+          upstreamForm.resetFields();
         }}
         width={600}
       >
-        <Form form={form} layout="vertical" initialValues={editingUpstream || undefined}>
+        <Form form={upstreamForm} layout="vertical" initialValues={editingUpstream || undefined}>
           <Form.Item name="name" label="Upstream名称" rules={[{ required: true, message: '请输入Upstream名称' }]}>
             <Input placeholder="例如: ds1_5b" />
           </Form.Item>
@@ -665,11 +718,11 @@ const ModelRouting: React.FC = () => {
         onCancel={() => {
           setIsLocationModalVisible(false);
           setEditingLocation(null);
-          form.resetFields();
+          locationForm.resetFields();
         }}
         width={600}
       >
-        <Form form={form} layout="vertical" initialValues={editingLocation || undefined}>
+        <Form form={locationForm} layout="vertical" initialValues={editingLocation || undefined}>
           <Form.Item name="path" label="路径匹配" rules={[{ required: true, message: '请输入路径匹配规则' }]}>
             <Input placeholder="例如: /ds1_5b/v1/chat/completions" />
           </Form.Item>
@@ -688,6 +741,48 @@ const ModelRouting: React.FC = () => {
           
           <Form.Item name="proxy_buffering" label="代理缓冲" valuePropName="checked">
             <Switch checkedChildren="开启" unCheckedChildren="关闭" />
+          </Form.Item>
+          
+          <Divider>路径重写配置</Divider>
+          
+          <Form.Item name={['path_rewrite', 'enabled']} label="启用路径重写" valuePropName="checked">
+            <Switch checkedChildren="开启" unCheckedChildren="关闭" />
+          </Form.Item>
+          
+          <Form.Item 
+            name={['path_rewrite', 'from']} 
+            label="匹配路径模式" 
+            rules={[
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  const enabled = getFieldValue(['path_rewrite', 'enabled']);
+                  if (enabled && !value) {
+                    return Promise.reject(new Error('请输入匹配路径模式'));
+                  }
+                  return Promise.resolve();
+                },
+              }),
+            ]}
+          >
+            <Input placeholder="例如: /qwen" />
+          </Form.Item>
+          
+          <Form.Item 
+            name={['path_rewrite', 'to']} 
+            label="重写目标路径" 
+            rules={[
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  const enabled = getFieldValue(['path_rewrite', 'enabled']);
+                  if (enabled && !value) {
+                    return Promise.reject(new Error('请输入重写目标路径'));
+                  }
+                  return Promise.resolve();
+                },
+              }),
+            ]}
+          >
+            <Input placeholder="例如: /v1/chat/com" />
           </Form.Item>
         </Form>
       </Modal>

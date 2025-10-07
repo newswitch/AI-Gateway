@@ -56,3 +56,30 @@ export interface CoreMetrics {
   peakQPS: number;
   currentQPS: number;
 }
+
+// 路径重写配置
+export interface PathRewriteConfig {
+  enabled: boolean;
+  from: string;
+  to: string;
+}
+
+// 路由规则
+export interface LocationRule {
+  id?: string;
+  path: string;
+  upstream: string;
+  proxy_cache?: boolean;
+  proxy_buffering?: boolean;
+  proxy_pass: string;
+  is_regex?: boolean;
+  path_rewrite?: PathRewriteConfig;
+  limit_req?: {
+    enabled: boolean;
+    zone: string;
+    burst: number;
+    nodelay: boolean;
+  };
+  sse_support?: boolean;
+  chunked_transfer?: boolean;
+}

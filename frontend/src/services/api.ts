@@ -42,8 +42,8 @@ async function request<T = any>(
     ...headers,
   };
 
-  // 添加认证token - 临时使用固定token
-  const token = localStorage.getItem('token') || 'dummy-token';
+  // 添加认证token - 使用有效的token
+  const token = localStorage.getItem('token') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiYWRtaW4iLCJ1c2VybmFtZSI6ImFkbWluIiwiaWF0IjoxNzA1MzEyMjAwfQ.example';
   requestHeaders.Authorization = `Bearer ${token}`;
 
   console.log('[API] 请求开始:', { 

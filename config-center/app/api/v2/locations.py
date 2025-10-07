@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from app.models import DatabaseManager
-from app.core.dependencies import get_db_manager
+from app.core.dependencies import get_db_manager, get_cache_manager
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,10 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 def get_db() -> DatabaseManager:
     """获取数据库管理器"""
     return get_db_manager()
+
+def get_cache():
+    """获取缓存管理器"""
+    return get_cache_manager()
 
 @router.get("/locations", response_model=Dict[str, Any])
 async def get_locations(
@@ -65,6 +69,15 @@ async def get_locations(
                 except:
                     limit_req_config = {}
             
+            # 解析路径重写配置
+            path_rewrite_config = location.get('path_rewrite_config', {})
+            if isinstance(path_rewrite_config, str):
+                try:
+                    import json
+                    path_rewrite_config = json.loads(path_rewrite_config)
+                except:
+                    path_rewrite_config = {}
+            
             all_locations.append({
                 "id": location['location_id'],
                 "path": location['path'],
@@ -73,6 +86,11 @@ async def get_locations(
                 "proxy_buffering": location['proxy_buffering'],
                 "proxy_pass": location['proxy_pass'],
                 "is_regex": location['is_regex'],
+                "path_rewrite": {
+                    "enabled": path_rewrite_config.get('enabled', False),
+                    "from": path_rewrite_config.get('from', ''),
+                    "to": path_rewrite_config.get('to', '')
+                },
                 "limit_req": {
                     "enabled": limit_req_config.get('enabled', True),
                     "zone": limit_req_config.get('zone', 'llm'),
@@ -172,6 +190,14 @@ async def create_location(location_data: Dict[str, Any], current_user: Dict = De
         if not upstream_id:
             raise HTTPException(status_code=400, detail=f"上游服务器 '{location_data.get('upstream')}' 不存在")
         
+        # 处理路径重写配置
+        path_rewrite = location_data.get("path_rewrite", {})
+        path_rewrite_config = {
+            "enabled": path_rewrite.get("enabled", False),
+            "from": path_rewrite.get("from", ""),
+            "to": path_rewrite.get("to", "")
+        }
+        
         # 转换前端数据格式到数据库格式
         create_data = {
             "path": location_data.get("path", ""),
@@ -180,6 +206,7 @@ async def create_location(location_data: Dict[str, Any], current_user: Dict = De
             "proxy_buffering": location_data.get("proxy_buffering", False),
             "proxy_pass": f"http://{location_data.get('upstream')}{location_data.get('path', '')}",
             "is_regex": location_data.get("is_regex", False),
+            "path_rewrite_config": path_rewrite_config,
             "limit_req_config": {
                 "enabled": True,
                 "zone": "llm",
@@ -236,7 +263,22 @@ async def update_location(location_id: int, location_data: Dict[str, Any], curre
 async def delete_location(location_id: int, current_user: Dict = Depends(get_current_user)):
     """删除路由规则"""
     try:
-        # 暂时返回成功响应，实际实现中需要从数据库删除
+        db = get_db()
+        cache = get_cache()
+        
+        # 检查路由规则是否存在
+        existing = await db.get_location_rule(location_id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="路由规则不存在")
+        
+        # 删除路由规则
+        success = await db.delete_location_rule(location_id)
+        if not success:
+            raise HTTPException(status_code=500, detail="删除路由规则失败")
+        
+        # 更新缓存
+        await cache.delete_location(location_id)
+        
         logger.info(f"路由规则删除成功，location_id={location_id}")
         return {
             "code": 200,
@@ -247,6 +289,8 @@ async def delete_location(location_id: int, current_user: Dict = Depends(get_cur
             "timestamp": "2024-01-15T10:30:00Z"
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"删除路由规则失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"删除路由规则失败: {str(e)}")
