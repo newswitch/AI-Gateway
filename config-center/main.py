@@ -14,7 +14,7 @@ from typing import List, Dict, Any
 
 from app.models import DatabaseManager, ConfigCache
 from app.core.dependencies import set_db_manager, set_cache_manager
-from app.api.v1 import namespaces, matchers, rules, routes, upstream, proxy, nginx_config
+# V1 API已删除，只保留V2 API
 from app.api.v2 import namespaces as namespaces_v2, upstreams, locations, dashboard, policies, traffic, logs, config, auth, metrics
 from app.middleware.metrics_middleware import MetricsMiddleware
 
@@ -63,8 +63,8 @@ async def lifespan(app: FastAPI):
             logger.info("MySQL数据库重连成功")
         except Exception as retry_e:
             logger.error(f"MySQL数据库重连失败: {str(retry_e)}")
-            # 如果重连失败，创建一个模拟的数据库管理器
-            set_db_manager(None)
+            # 如果重连失败，抛出异常而不是设置None
+            raise HTTPException(status_code=500, detail="数据库连接失败")
     
     # 初始化Redis连接
     redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
@@ -116,16 +116,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 注册路由
-app.include_router(namespaces.router)
-app.include_router(matchers.router)
-app.include_router(rules.router)
-app.include_router(routes.router)
-app.include_router(upstream.router)
-app.include_router(proxy.router)
-app.include_router(nginx_config.router)
-
-# 注册V2适配层路由
+# 注册V2 API路由
 app.include_router(namespaces_v2.router)
 app.include_router(upstreams.router)
 app.include_router(locations.router)

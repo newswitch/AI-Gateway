@@ -30,36 +30,40 @@ function _M.decode(str)
     if type(str) == "string" then
         -- 检查是否为有效的UTF-8字符串
         local valid_utf8 = true
-        for i = 1, #str do
+        local i = 1
+        while i <= #str do
             local byte = string.byte(str, i)
             if byte > 127 then
                 -- 检查UTF-8多字节序列
-                if byte >= 194 and byte <= 244 then
-                    -- 这是一个有效的UTF-8起始字节
-                    local next_bytes = 0
-                    if byte >= 240 then next_bytes = 3
-                    elseif byte >= 224 then next_bytes = 2
-                    elseif byte >= 194 then next_bytes = 1
-                    end
-                    
-                    -- 检查后续字节
-                    for j = 1, next_bytes do
-                        local next_byte = string.byte(str, i + j)
-                        if not next_byte or next_byte < 128 or next_byte > 191 then
-                            valid_utf8 = false
-                            break
-                        end
-                    end
-                    i = i + next_bytes
+                local next_bytes = 0
+                if byte >= 0xF0 and byte <= 0xF4 then
+                    next_bytes = 3  -- 4字节序列
+                elseif byte >= 0xE0 and byte <= 0xEF then
+                    next_bytes = 2  -- 3字节序列
+                elseif byte >= 0xC2 and byte <= 0xDF then
+                    next_bytes = 1  -- 2字节序列
                 else
                     valid_utf8 = false
                     break
                 end
+                
+                -- 检查后续字节
+                for j = 1, next_bytes do
+                    local next_byte = string.byte(str, i + j)
+                    if not next_byte or next_byte < 0x80 or next_byte > 0xBF then
+                        valid_utf8 = false
+                        break
+                    end
+                end
+                if not valid_utf8 then break end
+                i = i + next_bytes + 1
+            else
+                i = i + 1
             end
         end
         
         if not valid_utf8 then
-            ngx.log(ngx.NOTICE, "Invalid UTF-8 string detected, attempting to fix")
+            ngx.log(ngx.NOTICE, "Invalid UTF-8 string detected, attempting to fix. String length: ", #str, " First 100 chars: ", string.sub(str, 1, 100))
             -- 尝试修复UTF-8编码
             utf8_str = string.gsub(str, "[\128-\255]", function(c)
                 return string.format("\\u%04x", string.byte(c))

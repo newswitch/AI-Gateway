@@ -53,7 +53,7 @@ function _M.get_namespaces()
             id = namespace.namespace_id,
             code = namespace.namespace_code,
             name = namespace.namespace_name,
-            status = namespace.status == 1 and "enabled" or "disabled",
+            status = namespace.status,  -- 保持原始数字状态
             matcher = namespace.matcher  -- 匹配器信息已经包含在命名空间数据中
         }
         
@@ -69,8 +69,10 @@ function _M.get_namespaces()
         table.insert(processed_namespaces, processed_namespace)
     end
     
-    -- 只记录加载结果，不记录详细信息
-    ngx.log(ngx.NOTICE, "LOADER: Loaded ", #processed_namespaces, " namespaces from cache")
+    -- 只在DEBUG模式下记录加载结果
+    if ngx.var.debug == "true" then
+        ngx.log(ngx.INFO, "LOADER: Loaded ", #processed_namespaces, " namespaces from cache")
+    end
     return processed_namespaces
 end
 

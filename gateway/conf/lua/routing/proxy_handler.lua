@@ -7,9 +7,22 @@ local _M = {}
 
 -- 构建目标URL
 local function build_target_url(upstream, request_info)
-    -- 直接使用 server_url，并替换路径
+    -- 对于HTTPS URL，需要特殊处理
     local base_url = upstream.server_url
-    local target_url = base_url .. request_info.path
+    local target_url
+    
+    if base_url:match("https://") then
+        -- 对于HTTPS，确保URL格式正确
+        local host = base_url:match("https://([^/]+)")
+        if host then
+            target_url = "https://" .. host .. request_info.path
+        else
+            target_url = base_url .. request_info.path
+        end
+    else
+        -- 对于HTTP，直接拼接
+        target_url = base_url .. request_info.path
+    end
     
     return target_url
 end

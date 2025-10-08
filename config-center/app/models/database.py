@@ -1442,6 +1442,7 @@ class DatabaseManager:
                     match_value=location_data.get('match_value'),
                     add_headers=json.dumps(location_data.get('add_headers', {})) if location_data.get('add_headers') else None,
                     rewrite_path=location_data.get('rewrite_path'),
+                    path_rewrite_config=json.dumps(location_data.get('path_rewrite_config', {})) if location_data.get('path_rewrite_config') else None,
                     priority=location_data.get('priority', 100),
                     status=location_data.get('status', 1),
                     created_by=location_data.get('created_by'),
@@ -1534,6 +1535,13 @@ class DatabaseManager:
                         except json.JSONDecodeError:
                             pass
                     
+                    path_rewrite_config = {}
+                    if row.path_rewrite_config:
+                        try:
+                            path_rewrite_config = json.loads(row.path_rewrite_config)
+                        except json.JSONDecodeError:
+                            path_rewrite_config = {}
+                    
                     location_rules.append({
                         'location_id': row.location_id,
                         'path': row.path,
@@ -1551,6 +1559,7 @@ class DatabaseManager:
                         'match_value': row.match_value,
                         'add_headers': add_headers,
                         'rewrite_path': row.rewrite_path,
+                        'path_rewrite_config': path_rewrite_config,
                         'priority': row.priority if row.priority is not None else 100,
                         'status': row.status if row.status is not None else 1,
                         'created_by': row.created_by,
@@ -1566,6 +1575,7 @@ class DatabaseManager:
     async def update_location_rule(self, location_id: int, location_data: Dict[str, Any]) -> bool:
         """更新路由规则"""
         try:
+            print(f"DEBUG: Updating location {location_id} with data: {location_data}")
             async with self.get_session() as session:
                 stmt = update(self.location_rules).where(
                     self.location_rules.c.location_id == location_id
@@ -1585,6 +1595,7 @@ class DatabaseManager:
                     match_value=location_data.get('match_value'),
                     add_headers=json.dumps(location_data.get('add_headers', {})) if location_data.get('add_headers') else None,
                     rewrite_path=location_data.get('rewrite_path'),
+                    path_rewrite_config=json.dumps(location_data.get('path_rewrite_config', {})) if location_data.get('path_rewrite_config') else None,
                     priority=location_data.get('priority'),
                     status=location_data.get('status'),
                     update_time=datetime.now()

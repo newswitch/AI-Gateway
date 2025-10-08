@@ -303,9 +303,9 @@ const ModelRouting: React.FC = () => {
       };
 
       let response;
-      if (editingLocation && editingLocation.path) {
+      if (editingLocation && editingLocation.id) {
         // 更新现有location
-        response = await locationApi.updateLocation(editingLocation.path, locationData);
+        response = await locationApi.updateLocation(editingLocation.id, locationData);
       } else {
         // 创建新location
         response = await locationApi.createLocation(locationData);

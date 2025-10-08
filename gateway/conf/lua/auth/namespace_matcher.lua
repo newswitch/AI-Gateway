@@ -13,47 +13,63 @@ local _cache_timestamp = 0
 local CACHE_TTL = 60  -- 缓存60秒
 
 -- 创建header匹配的Trie树
-function _M._build_header_trie()
-    local namespaces = cache.get_namespaces() or {}
+function _M._build_header_trie(namespaces)
     local header_trie = trie.create()
     
+    ngx.log(ngx.INFO, "NAMESPACE_MATCHER: Building header trie with ", #namespaces, " namespaces")
+    
+    local added_count = 0
+    local skipped_count = 0
+    
     for _, namespace in ipairs(namespaces) do
+        ngx.log(ngx.INFO, "NAMESPACE_MATCHER: Processing namespace: ", namespace.code, " (id: ", namespace.id, ")")
+        
         if namespace.matcher and 
            namespace.matcher.matcher_type == "header" and 
-           namespace.matcher.status == 1 and
-           namespace.status == 1 then
+           tonumber(namespace.matcher.status) == 1 and
+           tonumber(namespace.status) == 1 then
             
             local field = namespace.matcher.match_field
             local value = namespace.matcher.match_value
             local key = field .. ":" .. value
             
+            ngx.log(ngx.INFO, "NAMESPACE_MATCHER: Adding header rule: ", key, " -> ", namespace.id)
+            
             -- 插入到Trie树
-            trie.insert(header_trie, key, namespace.namespace_id, {
+            trie.insert(header_trie, key, namespace.id, {
                 namespace = namespace,
                 matcher = namespace.matcher
             })
+            added_count = added_count + 1
+        else
+            ngx.log(ngx.WARN, "NAMESPACE_MATCHER: Skipping namespace ", namespace.code, " - matcher: ", namespace.matcher and "exists" or "nil", ", type: ", namespace.matcher and namespace.matcher.matcher_type or "nil", ", matcher_status: ", namespace.matcher and namespace.matcher.status or "nil", ", namespace_status: ", namespace.status)
+            skipped_count = skipped_count + 1
         end
     end
+    
+    ngx.log(ngx.INFO, "NAMESPACE_MATCHER: Header trie built - Added: ", added_count, ", Skipped: ", skipped_count, ", Total entries: ", trie.size(header_trie))
+    
+    -- 输出Trie树结构用于调试
+    _M._debug_trie_structure(header_trie, "header")
     
     return header_trie
 end
 
 -- 创建body匹配的Trie树
-function _M._build_body_trie()
-    local namespaces = cache.get_namespaces() or {}
+function _M._build_body_trie(namespaces)
     local body_trie = trie.create()
     
     for _, namespace in ipairs(namespaces) do
         if namespace.matcher and 
            namespace.matcher.matcher_type == "body" and 
-           namespace.matcher.status == 1 and
-           namespace.status == 1 then
+           tonumber(namespace.matcher.status) == 1 and
+           tonumber(namespace.status) == 1 then
             
             local field = namespace.matcher.match_field
             local value = namespace.matcher.match_value
             local key = field .. ":" .. value
             
-            trie.insert(body_trie, key, namespace.namespace_id, {
+            trie.insert(body_trie, key, namespace.id, {
                 namespace = namespace,
                 matcher = namespace.matcher
             })
@@ -64,21 +80,20 @@ function _M._build_body_trie()
 end
 
 -- 创建query匹配的Trie树
-function _M._build_query_trie()
-    local namespaces = cache.get_namespaces() or {}
+function _M._build_query_trie(namespaces)
     local query_trie = trie.create()
     
     for _, namespace in ipairs(namespaces) do
         if namespace.matcher and 
            namespace.matcher.matcher_type == "query" and 
-           namespace.matcher.status == 1 and
-           namespace.status == 1 then
+           tonumber(namespace.matcher.status) == 1 and
+           tonumber(namespace.status) == 1 then
             
             local field = namespace.matcher.match_field
             local value = namespace.matcher.match_value
             local key = field .. ":" .. value
             
-            trie.insert(query_trie, key, namespace.namespace_id, {
+            trie.insert(query_trie, key, namespace.id, {
                 namespace = namespace,
                 matcher = namespace.matcher
             })
@@ -130,27 +145,47 @@ function _M._get_cached_tries()
     
     -- 检查缓存是否有效
     if _cached_tries.header and (current_time - _cache_timestamp) < CACHE_TTL then
+        -- 只在DEBUG模式下记录缓存使用
+        if ngx.var.debug == "true" then
+            ngx.log(ngx.INFO, "NAMESPACE_MATCHER: Using cached Trie trees")
+        end
         return _cached_tries
     end
     
     -- 缓存失效，重新构建
-    ngx.log(ngx.INFO, "NAMESPACE_MATCHER: Building Trie trees...")
+    if ngx.var.debug == "true" then
+        ngx.log(ngx.INFO, "NAMESPACE_MATCHER: Building Trie trees...")
+    end
     
-    _cached_tries.header = _M._build_header_trie()
-    _cached_tries.body = _M._build_body_trie()
-    _cached_tries.query = _M._build_query_trie()
+    -- 只调用一次 get_namespaces()
+    local loader = require "config.loader"
+    local namespaces = loader.get_namespaces() or {}
+    
+    _cached_tries.header = _M._build_header_trie(namespaces)
+    _cached_tries.body = _M._build_body_trie(namespaces)
+    _cached_tries.query = _M._build_query_trie(namespaces)
     _cache_timestamp = current_time
     
-    ngx.log(ngx.INFO, "NAMESPACE_MATCHER: Trie trees built successfully")
+    if ngx.var.debug == "true" then
+        ngx.log(ngx.INFO, "NAMESPACE_MATCHER: Trie trees built successfully")
+    end
     return _cached_tries
 end
 
 -- 使用Trie树匹配命名空间
 function _M.find_matching_namespace(request_info)
-    ngx.log(ngx.INFO, "=== NAMESPACE_MATCHER: Starting Trie-based matching ===")
+    -- 只在DEBUG模式下记录匹配开始
+    if ngx.var.debug == "true" then
+        ngx.log(ngx.INFO, "=== NAMESPACE_MATCHER: Starting Trie-based matching ===")
+        ngx.log(ngx.INFO, "NAMESPACE_MATCHER: Request info: ", json.encode(request_info or {}))
+    end
     
     local tries = _M._get_cached_tries()
-    ngx.log(ngx.INFO, "NAMESPACE_MATCHER: Got tries, header_trie exists: ", tries.header ~= nil)
+    
+    -- 只在DEBUG模式下记录Trie树状态
+    if ngx.var.debug == "true" then
+        ngx.log(ngx.INFO, "NAMESPACE_MATCHER: Got tries, header_trie exists: ", tries.header ~= nil)
+    end
     
     -- 1. 尝试header匹配
     if request_info.headers then
@@ -172,10 +207,10 @@ function _M.find_matching_namespace(request_info)
         local body_data = json.decode(request_info.body)
         if body_data then
             local result = _M._match_body(tries.body, body_data)
-        if result then
-            ngx.log(ngx.INFO, "NAMESPACE_MATCHER: Found by body: ", result.data.namespace.namespace_code)
-            return result.data.namespace
-        end
+            if result then
+                ngx.log(ngx.INFO, "NAMESPACE_MATCHER: Found by body: ", result.data.namespace.namespace_code)
+                return result.data.namespace
+            end
         end
     end
     
@@ -194,14 +229,22 @@ end
 
 -- 匹配headers
 function _M._match_headers(header_trie, headers)
+    ngx.log(ngx.INFO, "NAMESPACE_MATCHER: Matching headers against trie...")
+    
     for field, value in pairs(headers) do
         local key = field .. ":" .. value
+        ngx.log(ngx.INFO, "NAMESPACE_MATCHER: Checking header key: ", key)
+        
         local result = trie.search(header_trie, key)
         if result then
-            ngx.log(ngx.INFO, "NAMESPACE_MATCHER: Header match: ", field, "=", value, " -> ", result.namespace_id)
+            ngx.log(ngx.INFO, "NAMESPACE_MATCHER: Header match found: ", field, "=", value, " -> namespace_id: ", result.namespace_id)
             return result
+        else
+            ngx.log(ngx.INFO, "NAMESPACE_MATCHER: No match for key: ", key)
         end
     end
+    
+    ngx.log(ngx.INFO, "NAMESPACE_MATCHER: No header matches found")
     return nil
 end
 
@@ -235,10 +278,11 @@ end
 
 -- 获取命名空间信息
 function _M.get_namespace_info(namespace_id)
-    local namespaces = cache.get_namespaces() or {}
+    local loader = require "config.loader"
+    local namespaces = loader.get_namespaces() or {}
     
     for _, namespace in ipairs(namespaces) do
-        if namespace.namespace_id == namespace_id then
+        if namespace.id == namespace_id then
             return namespace
         end
     end
@@ -249,7 +293,7 @@ end
 -- 验证命名空间是否有效
 function _M.is_namespace_valid(namespace_id)
     local namespace = _M.get_namespace_info(namespace_id)
-    return namespace and namespace.status == 1
+    return namespace and tonumber(namespace.status) == 1
 end
 
 -- 清空缓存
@@ -257,6 +301,40 @@ function _M.clear_cache()
     _cached_tries = {}
     _cache_timestamp = 0
     ngx.log(ngx.INFO, "NAMESPACE_MATCHER: Cache cleared")
+end
+
+-- 调试Trie树结构
+function _M._debug_trie_structure(trie_tree, trie_type)
+    if not trie_tree then
+        ngx.log(ngx.INFO, "NAMESPACE_MATCHER: ", trie_type, " trie is nil")
+        return
+    end
+    
+    ngx.log(ngx.INFO, "NAMESPACE_MATCHER: ", trie_type, " trie structure:")
+    ngx.log(ngx.INFO, "  - Size: ", trie.size(trie_tree))
+    
+    -- 尝试获取所有键值对
+    local keys = {}
+    trie._collect_keys(trie_tree, "", keys)
+    if #keys > 0 then
+        local key_strings = {}
+        for _, key_info in ipairs(keys) do
+            table.insert(key_strings, key_info.key)
+        end
+        ngx.log(ngx.INFO, "  - Keys: ", table.concat(key_strings, ", "))
+        for _, key_info in ipairs(keys) do
+            ngx.log(ngx.INFO, "    ", key_info.key, " -> namespace_id: ", key_info.namespace_id)
+        end
+    else
+        ngx.log(ngx.INFO, "  - No keys found")
+    end
+end
+
+-- 强制重建Trie树（用于调试）
+function _M.force_rebuild()
+    ngx.log(ngx.INFO, "NAMESPACE_MATCHER: Force rebuilding Trie trees...")
+    _M.clear_cache()
+    return _M._get_cached_tries()
 end
 
 -- 获取缓存统计

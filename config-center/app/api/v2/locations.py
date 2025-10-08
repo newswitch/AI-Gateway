@@ -52,14 +52,27 @@ async def get_locations(
         
         # 从数据库获取所有路由规则
         all_locations_data = await db.get_all_location_rules()
+        if not all_locations_data:
+            all_locations_data = []
         
         # 获取上游服务器信息用于显示名称
         upstream_servers = await db.get_all_upstream_servers()
-        upstream_map = {server['server_id']: server['server_name'] for server in upstream_servers}
+        upstream_map = {}
+        if upstream_servers:
+            upstream_map = {server['server_id']: server['server_name'] for server in upstream_servers}
         
         # 转换为前端需要的格式
         all_locations = []
-        for location in all_locations_data:
+        for i, location in enumerate(all_locations_data):
+            if location is None:
+                logger.error(f"Location at index {i} is None")
+                continue
+            
+            # 确保location是字典类型
+            if not isinstance(location, dict):
+                logger.error(f"Location at index {i} is not a dict: {type(location)}")
+                continue
+            
             # 解析限流配置
             limit_req_config = location.get('limit_req_config', {})
             if isinstance(limit_req_config, str):
@@ -207,6 +220,7 @@ async def create_location(location_data: Dict[str, Any], current_user: Dict = De
             "proxy_pass": f"http://{location_data.get('upstream')}{location_data.get('path', '')}",
             "is_regex": location_data.get("is_regex", False),
             "path_rewrite_config": path_rewrite_config,
+            "rewrite_path": path_rewrite.get("to", ""),
             "limit_req_config": {
                 "enabled": True,
                 "zone": "llm",
@@ -314,3 +328,70 @@ async def update_location_status(location_id: int, status_data: Dict[str, Any], 
     except Exception as e:
         logger.error(f"更新路由规则状态失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"更新路由规则状态失败: {str(e)}")
+
+@router.put("/locations/{location_id}", response_model=Dict[str, Any])
+async def update_location(location_id: int, location_data: Dict[str, Any], current_user: Dict = Depends(get_current_user)):
+    """更新路由规则"""
+    try:
+        db = get_db()
+        
+        # 获取上游服务器ID
+        upstream_servers = await db.get_all_upstream_servers()
+        upstream_name_to_id = {server['server_name']: server['server_id'] for server in upstream_servers}
+        upstream_id = upstream_name_to_id.get(location_data.get('upstream'))
+        
+        if not upstream_id:
+            raise HTTPException(status_code=400, detail=f"上游服务器 '{location_data.get('upstream')}' 不存在")
+        
+        # 处理路径重写配置
+        path_rewrite = location_data.get("path_rewrite", {})
+        path_rewrite_config = {
+            "enabled": path_rewrite.get("enabled", False),
+            "from": path_rewrite.get("from", ""),
+            "to": path_rewrite.get("to", "")
+        }
+        
+        # 转换前端数据格式到数据库格式
+        update_data = {
+            "path": location_data.get("path", ""),
+            "upstream_id": upstream_id,
+            "proxy_cache": location_data.get("proxy_cache", False),
+            "proxy_buffering": location_data.get("proxy_buffering", False),
+            "proxy_pass": f"http://{location_data.get('upstream')}{location_data.get('path', '')}",
+            "is_regex": location_data.get("is_regex", False),
+            "path_rewrite_config": path_rewrite_config,
+            "rewrite_path": path_rewrite.get("to", ""),
+            "limit_req_config": {
+                "enabled": True,
+                "zone": "llm",
+                "burst": 20,
+                "nodelay": True
+            },
+            "sse_support": location_data.get("sse_support", False),
+            "chunked_transfer": location_data.get("chunked_transfer", False),
+            "priority": location_data.get("priority", 100),
+            "status": 1 if location_data.get("status") == "enabled" else 0
+        }
+        
+        # 更新路由规则
+        logger.info(f"Updating location {location_id} with data: {update_data}")
+        success = await db.update_location_rule(location_id, update_data)
+        logger.info(f"Update result: {success}")
+        if not success:
+            raise HTTPException(status_code=500, detail="更新路由规则失败")
+        
+        return {
+            "code": 200,
+            "message": "路由规则更新成功",
+            "data": {
+                "location_id": location_id,
+                "path": update_data["path"]
+            },
+            "timestamp": "2024-01-15T10:30:00Z"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"更新路由规则失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"更新路由规则失败: {str(e)}")
