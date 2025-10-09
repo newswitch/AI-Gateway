@@ -138,10 +138,10 @@ const PolicyConfiguration: React.FC = () => {
         }));
         console.log('命名空间选项:', options);
         // 检查是否有重复的key
-        const keys = options.map(opt => opt.key);
+        const keys = options.map((opt: any) => opt.key);
         const uniqueKeys = new Set(keys);
         if (keys.length !== uniqueKeys.size) {
-          console.warn('发现重复的key:', keys.filter((key, index) => keys.indexOf(key) !== index));
+          console.warn('发现重复的key:', keys.filter((key: any, index: number) => keys.indexOf(key) !== index));
         }
         setNamespaceOptions(options);
       } else {
@@ -483,14 +483,6 @@ const PolicyConfiguration: React.FC = () => {
     }
   };
 
-  const getNamespaceColor = (namespace: string) => {
-    switch (namespace) {
-      case 'enterprise': return 'blue';
-      case 'dev': return 'green';
-      case 'test': return 'orange';
-      default: return 'default';
-    }
-  };
 
   // 根据策略类型和配置生成规则描述
   const generateRuleDescription = (policy: Policy) => {
@@ -633,11 +625,39 @@ const PolicyConfiguration: React.FC = () => {
           </div>
         </div>
         
-        <Form.Item name="maxInputTokenCount" label="最大Token输入" rules={[{ required: true, message: '请输入最大Token输入数量' }]}>
+        <Form.Item 
+          name="maxInputTokenCount" 
+          label="最大Token输入" 
+          rules={[
+            ({ getFieldValue }) => ({
+              validator(_, value) {
+                const policyType = getFieldValue('type');
+                if (policyType === 'token-limit' && !value) {
+                  return Promise.reject(new Error('请输入最大Token输入数量'));
+                }
+                return Promise.resolve();
+              },
+            }),
+          ]}
+        >
           <InputNumber placeholder="单次请求允许的最大输入Token数" style={{ width: '100%' }} />
         </Form.Item>
         
-        <Form.Item name="maxOutputTokenCount" label="最大Token输出" rules={[{ required: true, message: '请输入最大Token输出数量' }]}>
+        <Form.Item 
+          name="maxOutputTokenCount" 
+          label="最大Token输出" 
+          rules={[
+            ({ getFieldValue }) => ({
+              validator(_, value) {
+                const policyType = getFieldValue('type');
+                if (policyType === 'token-limit' && !value) {
+                  return Promise.reject(new Error('请输入最大Token输出数量'));
+                }
+                return Promise.resolve();
+              },
+            }),
+          ]}
+        >
           <InputNumber placeholder="单次请求允许的最大输出Token数" style={{ width: '100%' }} />
         </Form.Item>
         
@@ -685,7 +705,21 @@ const PolicyConfiguration: React.FC = () => {
         </div>
       </div>
       
-      <Form.Item name="maxConcurrentConnections" label="最大并发连接数" rules={[{ required: true, message: '请输入最大并发连接数' }]}>
+      <Form.Item 
+        name="maxConcurrentConnections" 
+        label="最大并发连接数" 
+        rules={[
+          ({ getFieldValue }) => ({
+            validator(_, value) {
+              const policyType = getFieldValue('type');
+              if (policyType === 'concurrency-limit' && !value) {
+                return Promise.reject(new Error('请输入最大并发连接数'));
+              }
+              return Promise.resolve();
+            },
+          }),
+        ]}
+      >
         <InputNumber placeholder="同时允许的最大请求数量" style={{ width: '100%' }} />
       </Form.Item>
     </div>
@@ -718,11 +752,39 @@ const PolicyConfiguration: React.FC = () => {
         </div>
       </div>
       
-      <Form.Item name="maxQPS" label="最大QPS" rules={[{ required: true, message: '请输入最大QPS' }]}>
+      <Form.Item 
+        name="maxQPS" 
+        label="最大QPS" 
+        rules={[
+          ({ getFieldValue }) => ({
+            validator(_, value) {
+              const policyType = getFieldValue('type');
+              if (policyType === 'qps-limit' && !value) {
+                return Promise.reject(new Error('请输入最大QPS'));
+              }
+              return Promise.resolve();
+            },
+          }),
+        ]}
+      >
         <InputNumber placeholder="每秒允许的最大请求数" style={{ width: '100%' }} />
       </Form.Item>
       
-      <Form.Item name="timeWindow" label="时间窗口(秒)" rules={[{ required: true, message: '请输入时间窗口' }]}>
+      <Form.Item 
+        name="timeWindow" 
+        label="时间窗口(秒)" 
+        rules={[
+          ({ getFieldValue }) => ({
+            validator(_, value) {
+              const policyType = getFieldValue('type');
+              if (policyType === 'qps-limit' && !value) {
+                return Promise.reject(new Error('请输入时间窗口'));
+              }
+              return Promise.resolve();
+            },
+          }),
+        ]}
+      >
         <InputNumber placeholder="统计QPS的时间窗口(秒)" style={{ width: '100%' }} />
       </Form.Item>
     </div>
@@ -767,7 +829,7 @@ const PolicyConfiguration: React.FC = () => {
       title: '主要规则',
       dataIndex: 'rules',
       key: 'rules',
-      render: (rules: string[], record: Policy) => {
+      render: (_rules: string[], record: Policy) => {
         const ruleDescription = generateRuleDescription(record);
         return (
           <div style={{ maxWidth: 300 }}>
@@ -1273,11 +1335,11 @@ const PolicyConfiguration: React.FC = () => {
               loading={loading}
               optionFilterProp="children"
               filterOption={(input, option) =>
-                (option?.children as string)?.toLowerCase().includes(input.toLowerCase())
+                (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
               }
             >
               {namespaceOptions.map((option, index) => (
-                <Option key={option.key || `create-${option.value}-${index}`} value={option.value}>
+                <Option key={(option as any).key || `create-${option.value}-${index}`} value={option.value}>
                   {option.label}
                 </Option>
               ))}
@@ -1365,11 +1427,11 @@ const PolicyConfiguration: React.FC = () => {
               loading={loading}
               optionFilterProp="children"
               filterOption={(input, option) =>
-                (option?.children as string)?.toLowerCase().includes(input.toLowerCase())
+                (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
               }
             >
               {namespaceOptions.map((option, index) => (
-                <Option key={option.key || `edit-${option.value}-${index}`} value={option.value}>
+                <Option key={(option as any).key || `edit-${option.value}-${index}`} value={option.value}>
                   {option.label}
                 </Option>
               ))}

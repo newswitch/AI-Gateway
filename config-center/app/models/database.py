@@ -1803,10 +1803,9 @@ class DatabaseManager:
         """根据ID获取策略"""
         try:
             async with self.get_session() as session:
-                # 查询 status = 1 或 status IS NULL 的记录（NULL 视为启用状态）
+                # 查询所有状态的策略，包括禁用的策略
                 stmt = select(self.policies).where(
-                    self.policies.c.policy_id == policy_id,
-                    (self.policies.c.status == 1) | (self.policies.c.status.is_(None))
+                    self.policies.c.policy_id == policy_id
                 )
                 result = await session.execute(stmt)
                 row = result.first()

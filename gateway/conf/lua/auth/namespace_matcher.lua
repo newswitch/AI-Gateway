@@ -363,4 +363,71 @@ function _M.debug_print_tries()
     trie.print(tries.query)
 end
 
+-- 匹配值函数 - 用于报文匹配策略
+function _M.match_value(actual_value, expected_value, operator)
+    if not actual_value or not expected_value then
+        return false
+    end
+    
+    local actual = tostring(actual_value)
+    local expected = tostring(expected_value)
+    
+    ngx.log(ngx.INFO, "MATCH_VALUE: Comparing '", actual, "' ", operator, " '", expected, "'")
+    
+    -- 定义匹配策略表
+    local strategies = {
+        -- 字符串匹配策略
+        ["equals"] = function() return actual == expected end,
+        ["not_equals"] = function() return actual ~= expected end,
+        ["contains"] = function() return string.find(actual, expected, 1, true) ~= nil end,
+        ["not_contains"] = function() return string.find(actual, expected, 1, true) == nil end,
+        ["starts_with"] = function() return string.sub(actual, 1, #expected) == expected end,
+        ["ends_with"] = function() return string.sub(actual, -#expected) == expected end,
+        ["regex"] = function() return string.match(actual, expected) ~= nil end,
+        
+        -- 数值比较策略
+        ["greater_than"] = function() 
+            local actual_num, expected_num = tonumber(actual), tonumber(expected)
+            return actual_num and expected_num and actual_num > expected_num
+        end,
+        [">"] = function() 
+            local actual_num, expected_num = tonumber(actual), tonumber(expected)
+            return actual_num and expected_num and actual_num > expected_num
+        end,
+        ["greater_than_or_equal"] = function() 
+            local actual_num, expected_num = tonumber(actual), tonumber(expected)
+            return actual_num and expected_num and actual_num >= expected_num
+        end,
+        [">="] = function() 
+            local actual_num, expected_num = tonumber(actual), tonumber(expected)
+            return actual_num and expected_num and actual_num >= expected_num
+        end,
+        ["less_than"] = function() 
+            local actual_num, expected_num = tonumber(actual), tonumber(expected)
+            return actual_num and expected_num and actual_num < expected_num
+        end,
+        ["<"] = function() 
+            local actual_num, expected_num = tonumber(actual), tonumber(expected)
+            return actual_num and expected_num and actual_num < expected_num
+        end,
+        ["less_than_or_equal"] = function() 
+            local actual_num, expected_num = tonumber(actual), tonumber(expected)
+            return actual_num and expected_num and actual_num <= expected_num
+        end,
+        ["<="] = function() 
+            local actual_num, expected_num = tonumber(actual), tonumber(expected)
+            return actual_num and expected_num and actual_num <= expected_num
+        end
+    }
+    
+    -- 执行匹配策略
+    local strategy = strategies[operator]
+    if strategy then
+        return strategy()
+    else
+        ngx.log(ngx.WARN, "Unknown operator: ", operator)
+        return false
+    end
+end
+
 return _M

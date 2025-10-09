@@ -183,6 +183,9 @@ local function enforce_token_limit(policy, request_info)
         
         if current_usage + total_tokens > window_max_tokens then
             ngx.log(ngx.WARN, "Time window token limit exceeded: ", current_usage + total_tokens, " > ", window_max_tokens)
+            -- 记录策略限制触发
+            local metrics = require "monitoring.metrics"
+            metrics.record_policy_violation(policy.namespace_id, "token-limit", policy.policy_name)
             return false, "Time window token limit exceeded"
         end
         
@@ -335,6 +338,9 @@ local function enforce_qps_limit(policy, request_info)
     
     if current_count > max_qps then
         ngx.log(ngx.WARN, "QPS limit exceeded for key: ", window_key, ", current: ", current_count, " > max: ", max_qps, " (window: ", time_window, "s)")
+        -- 记录策略限制触发
+        local metrics = require "monitoring.metrics"
+        metrics.record_policy_violation(policy.namespace_id, "qps-limit", policy.policy_name)
         return false, "QPS limit exceeded"
     end
     
@@ -374,8 +380,12 @@ local function enforce_concurrency_limit(policy, request_info)
         current_count = 0
     end
     
+    -- 检查是否超过限制（在增加计数之前）
     if current_count >= max_concurrent then
         ngx.log(ngx.WARN, "Concurrency limit exceeded: ", current_count, " >= ", max_concurrent)
+        -- 记录策略限制触发
+        local metrics = require "monitoring.metrics"
+        metrics.record_policy_violation(policy.namespace_id, "concurrency-limit", policy.policy_name)
         return false, "Concurrency limit exceeded"
     end
     
@@ -429,8 +439,18 @@ local function enforce_message_matching(policy, request_info)
     local matched = matcher.match_value(tostring(actual_value), expected_value, operator)
     
     if action == "allow" then
+        if not matched then
+            -- 记录策略限制触发
+            local metrics = require "monitoring.metrics"
+            metrics.record_policy_violation(policy.namespace_id, "message-matching", policy.policy_name)
+        end
         return matched, matched and "Message matched" or "Message not matched"
     else
+        if matched then
+            -- 记录策略限制触发
+            local metrics = require "monitoring.metrics"
+            metrics.record_policy_violation(policy.namespace_id, "message-matching", policy.policy_name)
+        end
         return not matched, not matched and "Message not matched (deny)" or "Message matched (deny)"
     end
 end
@@ -600,9 +620,20 @@ function _M.enforce_namespace_policies(namespace_id, request_info)
         end
     end
     
-    -- 按优先级排序
+    -- 按优先级排序，但报文匹配策略优先执行（避免不必要的资源消耗）
     table.sort(namespace_policies, function(a, b)
-        return (a.priority or 100) < (b.priority or 100)
+        local a_priority = a.priority or 100
+        local b_priority = b.priority or 100
+        
+        -- 报文匹配策略优先级最高（数字最小）
+        if a.policy_type == "message-matching" and b.policy_type ~= "message-matching" then
+            return true
+        elseif b.policy_type == "message-matching" and a.policy_type ~= "message-matching" then
+            return false
+        end
+        
+        -- 其他策略按原优先级排序
+        return a_priority < b_priority
     end)
     
     ngx.log(ngx.INFO, "POLICY_ENFORCER: Found ", #namespace_policies, " policies for namespace: ", namespace_id)

@@ -45,13 +45,6 @@ scrape_configs:
     scrape_timeout: 10s
     honor_labels: true
 
-  # 收集Token服务指标
-  - job_name: 'ai-gateway-token-service'
-    static_configs:
-      - targets: ['token-service:8000']
-    metrics_path: '/metrics'
-    scrape_interval: 15s
-    scrape_timeout: 10s
 
 # 远程写入配置（可选，用于长期存储）
 # remote_write:

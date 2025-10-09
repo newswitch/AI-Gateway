@@ -169,8 +169,7 @@ function _M.handle_request_end(namespace_id, namespace_code, request_id, start_t
     if request_uri and (request_uri:match("^/health") or 
        request_uri:match("^/stats") or 
        request_uri:match("^/metrics")) then
-        -- 只记录成功状态，减少日志噪音
-        ngx.log(ngx.NOTICE, "ROUTER: Internal request completed: ", request_uri)
+        -- 静默处理内部请求，不记录日志
         return
     end
     
