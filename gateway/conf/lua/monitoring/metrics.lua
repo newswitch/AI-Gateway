@@ -34,12 +34,35 @@ local function get_namespace_code(namespace_id)
     local target_id = tonumber(namespace_id)
     
     for _, namespace in ipairs(namespaces) do
-        if namespace.namespace_id == target_id then
-            return namespace.namespace_code
+        if tonumber(namespace.id) == target_id then
+            return namespace.code
         end
     end
     
-    -- 如果没找到namespace_code，使用namespace_id作为备选
+    -- 如果缓存中没有数据，尝试从配置中心API直接获取
+    local http = require "utils.http"
+    local json = require "utils.json"
+    local config_center_host = os.getenv("CONFIG_CENTER_HOST") or "config-center:8001"
+    local api_url = "http://" .. config_center_host .. "/api/namespaces"
+    
+    local res, err = http.get(api_url)
+    if not res then
+        ngx.log(ngx.ERR, "Failed to fetch namespaces from config-center: ", err)
+        return tostring(namespace_id) -- 获取失败，返回ID
+    end
+    
+    if res and res.status == 200 and res.body then
+        local data = json.decode(res.body)
+        if data and data.data and data.data.items then
+            for _, namespace in ipairs(data.data.items) do
+                if tonumber(namespace.id) == target_id then
+                    return namespace.code
+                end
+            end
+        end
+    end
+    
+    -- 如果都没找到，使用namespace_id作为备选
     return tostring(namespace_id)
 end
 
@@ -54,8 +77,8 @@ local function get_namespace_id_by_code(namespace_code)
     local namespaces = configs.namespaces or {}
     
     for _, namespace in ipairs(namespaces) do
-        if namespace.namespace_code == tostring(namespace_code) then
-            return namespace.namespace_id
+        if namespace.code == tostring(namespace_code) then
+            return namespace.id
         end
     end
     
