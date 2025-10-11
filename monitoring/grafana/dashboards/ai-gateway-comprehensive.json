@@ -110,7 +110,35 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "thresholds"
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
           },
           "mappings": [],
           "thresholds": {
@@ -138,30 +166,25 @@
       },
       "id": 3,
       "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
         },
-        "textMode": "auto"
+        "tooltip": {
+          "mode": "single"
+        }
       },
-      "pluginVersion": "8.0.0",
       "targets": [
         {
-          "expr": "avg(ai_gateway_namespace_response_time_seconds) or vector(0)",
+          "expr": "ai_gateway_namespace_policy_matching_time_seconds",
           "interval": "",
-          "legendFormat": "平均响应时间",
+          "legendFormat": "{{namespace_code}} 策略匹配时间",
           "refId": "A"
         }
       ],
-      "title": "平均响应时间",
-      "type": "stat"
+      "title": "策略匹配时间分析",
+      "type": "timeseries"
     },
     {
       "datasource": "Prometheus",

@@ -49,6 +49,7 @@ function _M.handle_request()
     
     -- 记录请求开始时间
     local start_time = ngx.now()
+    local gateway_start_time = start_time
     
     -- 跳过内部路径
     if request_info.path:match("^/health") or 
@@ -124,6 +125,14 @@ function _M.handle_request()
         ngx.exit(503)
     end
     
+    -- 记录网关处理完成时间
+    local gateway_end_time = ngx.now()
+    local gateway_processing_time = gateway_end_time - gateway_start_time
+    
+    -- 直接记录策略匹配时间（在access_by_lua阶段）
+    metrics.record_gateway_processing_time(namespace_id, gateway_processing_time)
+    ngx.log(ngx.INFO, "ROUTER: Policy matching time recorded: ", gateway_processing_time, " seconds")
+    
     -- 设置请求上下文
     ngx.log(ngx.INFO, "ROUTER: Setting context - namespace_id: ", namespace_id, ", namespace_code: ", namespace_code, ", request_id: ", request_id)
     ngx.ctx.namespace_id = namespace_id
@@ -131,7 +140,9 @@ function _M.handle_request()
     ngx.ctx.upstream = upstream
     ngx.ctx.request_id = request_id
     ngx.ctx.start_time = start_time
+    ngx.ctx.gateway_processing_time = gateway_processing_time
     ngx.log(ngx.INFO, "ROUTER: Context set successfully - namespace_id: ", ngx.ctx.namespace_id, ", namespace_code: ", ngx.ctx.namespace_code, ", request_id: ", ngx.ctx.request_id)
+    ngx.log(ngx.INFO, "ROUTER: Gateway processing time: ", gateway_processing_time, " seconds")
     
     -- 代理到上游服务器
     local success, err = proxy_handler.proxy_to_upstream(upstream, request_info)
@@ -146,9 +157,8 @@ function _M.handle_request()
         ngx.say('{"error": "proxy_failed", "message": "' .. err .. '"}')
         ngx.exit(502)
     else
-        -- 成功代理，记录指标
-        local response_time = ngx.now() - start_time
-        metrics.record_request(namespace_id, request_info, 200, response_time)
+        -- 成功代理，但不在这里记录响应时间
+        -- 响应时间将在 log_by_lua 阶段记录，确保包含上游处理时间
         metrics.record_route_usage(namespace_id, request_info, 200)
         
         -- 记录Token使用量（如果有模型信息）
@@ -180,9 +190,20 @@ function _M.handle_request_end(namespace_id, namespace_code, request_id, start_t
     ngx.log(ngx.INFO, "ROUTER: Request URI: ", request_uri or "nil")
     
     if namespace_id and request_id and start_time then
-        local response_time = ngx.now() - start_time
+        local total_response_time = ngx.now() - start_time
+        local gateway_processing_time = ngx.ctx.gateway_processing_time or 0
         
-        ngx.log(ngx.INFO, "ROUTER: Request completed - status: ", status or "nil", ", response_time: ", response_time)
+        ngx.log(ngx.INFO, "ROUTER: Request completed - status: ", status or "nil")
+        ngx.log(ngx.INFO, "ROUTER: Time breakdown - Total: ", total_response_time, "s, Policy Matching: ", gateway_processing_time, "s")
+        
+        -- 记录总响应时间（简化版本，只记录基本指标）
+        local metrics = require "monitoring.metrics"
+        local request_info = {
+            path = ngx.var.request_uri or ngx.var.uri or "/unknown" -- 用于路由统计
+        }
+        
+        -- 记录总响应时间
+        metrics.record_request(namespace_id, request_info, status, total_response_time)
         
         -- 记录请求结束日志
         logger.log_request_end(request_id, status, "Request completed")

@@ -692,6 +692,7 @@ function _M.decrease_concurrency_count(namespace_code)
     if count < 0 then
         ngx.log(ngx.WARN, "POLICY_ENFORCER: 并发计数变为负数，重置为0: ", count)
         red:set(concurrency_key, 0)
+        red:expire(concurrency_key, 300) -- 设置5分钟过期时间
         count = 0
     end
     

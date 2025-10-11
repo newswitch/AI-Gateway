@@ -179,6 +179,35 @@ function _M.record_request(namespace_id, request_info, status, response_time)
     safe_redis_command("expire", instance_key, 300) -- 5分钟过期
 end
 
+-- 记录网关处理时间
+function _M.record_gateway_processing_time(namespace_id, processing_time)
+    if not namespace_id or not processing_time or processing_time <= 0 then
+        return
+    end
+    
+    local namespace_code = get_namespace_code(namespace_id)
+    local namespace_key = NAMESPACE_PREFIX .. namespace_code
+    
+    local redis_client = redis.get_connection()
+    if not redis_client then
+        ngx.log(ngx.ERR, "Failed to get Redis client for gateway processing time metrics")
+        return
+    end
+    
+    local function safe_redis_command(command, ...)
+        local result, err = redis_client[command](redis_client, ...)
+        if not result then
+            ngx.log(ngx.ERR, "Redis command failed: ", command, " - ", err)
+        end
+        return result
+    end
+    
+    -- 更新网关处理时间
+    safe_redis_command("incrbyfloat", namespace_key .. ":total_gateway_processing_time", processing_time)
+    safe_redis_command("incrbyfloat", GLOBAL_KEY .. ":total_gateway_processing_time", processing_time)
+end
+
+
 -- 记录Token使用量
 function _M.record_token_usage(namespace_id, model_name, token_count, request_info, token_type)
     if not namespace_id or not token_count or token_count <= 0 then
@@ -313,54 +342,22 @@ function _M.record_route_usage(namespace_id, request_info, status)
     safe_redis_command("expire", route_key .. ":last_used", 86400)
 end
 
--- 增加并发请求计数
-function _M.incr_concurrent_requests(namespace_id)
+-- 获取并发请求计数（从policy_enforcer的Redis键读取）
+function _M.get_concurrent_requests(namespace_id)
     if not namespace_id then
-        return
+        return 0
     end
     
-    local instance_id = get_instance_id()
     local namespace_code = get_namespace_code(namespace_id)
-    local namespace_key = NAMESPACE_PREFIX .. namespace_code
-    local instance_key = INSTANCE_PREFIX .. instance_id .. ":" .. namespace_code
+    local concurrency_key = "concurrent:" .. namespace_code
     
     local redis_client = redis.get_connection()
     if not redis_client then
-        return
+        return 0
     end
     
-    local pipeline = redis_client:pipeline()
-    pipeline:incr(namespace_key .. ":concurrent_requests")
-    pipeline:hset(instance_key, "concurrent_requests", 
-        (redis_client:get(namespace_key .. ":concurrent_requests") or 0) + 1)
-    pipeline:expire(instance_key, 300)
-    
-    pipeline:exec()
-end
-
--- 减少并发请求计数
-function _M.decr_concurrent_requests(namespace_id)
-    if not namespace_id then
-        return
-    end
-    
-    local instance_id = get_instance_id()
-    local namespace_code = get_namespace_code(namespace_id)
-    local namespace_key = NAMESPACE_PREFIX .. namespace_code
-    local instance_key = INSTANCE_PREFIX .. instance_id .. ":" .. namespace_code
-    
-    local redis_client = redis.get_connection()
-    if not redis_client then
-        return
-    end
-    
-    local pipeline = redis_client:pipeline()
-    pipeline:decr(namespace_key .. ":concurrent_requests")
-    pipeline:hset(instance_key, "concurrent_requests", 
-        math.max(0, (redis_client:get(namespace_key .. ":concurrent_requests") or 0) - 1))
-    pipeline:expire(instance_key, 300)
-    
-    pipeline:exec()
+    local current_count = redis_client:get(concurrency_key)
+    return tonumber(current_count) or 0
 end
 
 -- 获取命名空间指标
@@ -400,13 +397,20 @@ function _M.get_namespace_metrics(namespace_id)
     local successful_requests = tonumber(redis_client:get(namespace_key .. ":successful_requests")) or 0
     local failed_requests = tonumber(redis_client:get(namespace_key .. ":failed_requests")) or 0
     local total_response_time = tonumber(redis_client:get(namespace_key .. ":total_response_time")) or 0
-    local concurrent_requests = tonumber(redis_client:get(namespace_key .. ":concurrent_requests")) or 0
+    local total_gateway_processing_time = tonumber(redis_client:get(namespace_key .. ":total_gateway_processing_time")) or 0
+    local concurrent_requests = _M.get_concurrent_requests(namespace_id)
     local last_request_time = tonumber(redis_client:get(namespace_key .. ":last_request_time")) or 0
     
     -- 计算平均响应时间
     local avg_response_time = 0
     if total_requests > 0 and total_response_time > 0 then
         avg_response_time = total_response_time / total_requests
+    end
+    
+    -- 计算平均网关处理时间（策略匹配时间）
+    local avg_gateway_processing_time = 0
+    if total_requests > 0 and total_gateway_processing_time > 0 then
+        avg_gateway_processing_time = total_gateway_processing_time / total_requests
     end
     
     -- 获取状态码统计
@@ -431,6 +435,7 @@ function _M.get_namespace_metrics(namespace_id)
         successful_requests = successful_requests,
         failed_requests = failed_requests,
         average_response_time = avg_response_time,
+        average_gateway_processing_time = avg_gateway_processing_time,
         status_codes = status_codes,
         concurrent_requests = concurrent_requests,
         uptime = uptime,
@@ -705,6 +710,11 @@ function _M.get_prometheus_metrics()
         table.insert(lines, "# TYPE ai_gateway_namespace_response_time_seconds gauge")
         table.insert(lines, string.format("ai_gateway_namespace_response_time_seconds{namespace_code=\"%s\"} %.4f", 
             namespace_code, metrics.average_response_time or 0))
+        
+        table.insert(lines, "# HELP ai_gateway_namespace_policy_matching_time_seconds Average policy matching time per namespace")
+        table.insert(lines, "# TYPE ai_gateway_namespace_policy_matching_time_seconds gauge")
+        table.insert(lines, string.format("ai_gateway_namespace_policy_matching_time_seconds{namespace_code=\"%s\"} %.4f", 
+            namespace_code, metrics.average_gateway_processing_time or 0))
         
         -- 状态码指标
         for status_code, count in pairs(metrics.status_codes or {}) do
